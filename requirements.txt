@@ -1,0 +1,23 @@
+# Thu vien can thiet de CHAY THU o may ca nhan (dung SQLite).
+# Dung dau ">=" (khong ghim cung 1 phien ban) de pip tu chon ban moi nhat
+# tuong thich voi phien ban Python cua ban, ke ca Python 3.13 / 3.14.
+
+# Web framework and ASGI server
+fastapi>=0.115.5
+uvicorn[standard]>=0.32.1
+
+# ORM + migrations
+SQLAlchemy>=2.0.36
+alembic>=1.14.0
+
+# Settings + validation
+pydantic>=2.10
+pydantic-settings>=2.6
+
+# Testing
+pytest>=8.3
+httpx>=0.28
+
+# GHI CHU: PostgreSQL (dung khi trien khai len may chu) can them driver.
+# KHONG cai o buoc chay thu. Khi trien khai production moi chay:
+#     python -m pip install -r requirements-prod.txt

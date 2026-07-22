@@ -1,0 +1,7 @@
+# Thu vien BO SUNG cho ban production (khi dung PostgreSQL tren may chu).
+# Chi cai file nay khi trien khai len Railway/Render, KHONG can khi chay thu.
+
+-r requirements.txt
+
+# PostgreSQL driver (pip tu chon ban co san cho Python cua ban)
+psycopg[binary]>=3.2
