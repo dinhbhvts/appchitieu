@@ -106,6 +106,8 @@ class StockHolding(Base):
     )
     # Ticker or free label, e.g. "NKG".
     symbol: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Number of shares held (typed by the user).
+    quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # Current value in VND (money), typed by the user.
     value: Mapped[float] = mapped_column(Numeric(18, 0), nullable=False)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)

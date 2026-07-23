@@ -1,5 +1,7 @@
 """HTTP endpoints for the stock module."""
 
+from datetime import date as date_type
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -128,9 +130,15 @@ def delete_holding(hid: int, db: Session = Depends(get_db)):
 # --- Summary --------------------------------------------------------------
 
 @router.get("/summary", response_model=StockSummary)
-def stock_summary(user_id: int | None = None, db: Session = Depends(get_db)):
+def stock_summary(
+    user_id: int | None = None,
+    start: date_type | None = None,
+    end: date_type | None = None,
+    db: Session = Depends(get_db),
+):
     """Totals (deposit/withdraw/invested/realised P&L) plus per-ticker rows.
 
-    Pass user_id for one person; omit for the combined view.
+    Pass user_id for one person; omit for the combined view. start/end limit the
+    deposit/withdraw stats to that period (e.g. the selected month).
     """
-    return service.summary(db, user_id=user_id)
+    return service.summary(db, user_id=user_id, start=start, end=end)

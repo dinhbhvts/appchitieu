@@ -83,6 +83,7 @@ class HoldingCreate(BaseModel):
 
     user_id: int
     symbol: str
+    quantity: int = Field(default=0, ge=0)
     value: float = Field(..., gt=0)
     note: str | None = None
 
@@ -96,6 +97,7 @@ class HoldingUpdate(BaseModel):
     """Edit a holding. All fields optional."""
 
     symbol: str | None = None
+    quantity: int | None = Field(default=None, ge=0)
     value: float | None = Field(default=None, gt=0)
     user_id: int | None = None
     note: str | None = None

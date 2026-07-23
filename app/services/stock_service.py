@@ -82,9 +82,16 @@ def delete_trade(db: Session, tid: int) -> bool:
     return True
 
 
-def _positions(db: Session, user_id: int | None = None) -> list[SymbolPosition]:
-    """Compute the aggregated position for every ticker from its trades."""
+def _positions(db: Session, user_id: int | None = None,
+               end=None) -> list[SymbolPosition]:
+    """Compute the aggregated position for every ticker from its trades.
+
+    If `end` (a date) is given, only trades up to and including that date are
+    counted (position/realised P&L "as of" that month).
+    """
     trades = repo.list_trades(db, user_id=user_id)  # oldest-first
+    if end is not None:
+        trades = [t for t in trades if t.date <= end]
 
     # Group trades by symbol while preserving chronological order.
     by_symbol: dict[str, list] = {}
@@ -128,26 +135,48 @@ def _positions(db: Session, user_id: int | None = None) -> list[SymbolPosition]:
     return positions
 
 
-def summary(db: Session, user_id: int | None = None) -> StockSummary:
+def summary(db: Session, user_id: int | None = None,
+            start=None, end=None) -> StockSummary:
     """Top-of-screen totals plus the per-ticker breakdown.
 
-    Pass user_id to get one person's figures; omit for the combined view.
+    - total_deposit / total_withdraw: for the [start, end] period (that month)
+      when given; otherwise all-time.
+    - invested_capital: CUMULATIVE net money put in up to `end` (money currently
+      in the account), not just the period.
+    - total_realised_pl: CUMULATIVE realised profit/loss up to `end`.
     """
     cashflows = repo.list_cashflows(db, user_id=user_id)
-    total_deposit = sum(
-        float(c.amount) for c in cashflows if c.type == CashFlowType.deposit
+
+    def in_period(d) -> bool:
+        return (start is None or d >= start) and (end is None or d <= end)
+
+    def up_to(d) -> bool:
+        return end is None or d <= end
+
+    period_deposit = sum(
+        float(c.amount) for c in cashflows
+        if c.type == CashFlowType.deposit and in_period(c.date)
     )
-    total_withdraw = sum(
-        float(c.amount) for c in cashflows if c.type == CashFlowType.withdraw
+    period_withdraw = sum(
+        float(c.amount) for c in cashflows
+        if c.type == CashFlowType.withdraw and in_period(c.date)
+    )
+    cum_deposit = sum(
+        float(c.amount) for c in cashflows
+        if c.type == CashFlowType.deposit and up_to(c.date)
+    )
+    cum_withdraw = sum(
+        float(c.amount) for c in cashflows
+        if c.type == CashFlowType.withdraw and up_to(c.date)
     )
 
-    positions = _positions(db, user_id=user_id)
+    positions = _positions(db, user_id=user_id, end=end)
     total_realised = sum(p.realised_pl for p in positions)
 
     return StockSummary(
-        total_deposit=total_deposit,
-        total_withdraw=total_withdraw,
-        invested_capital=total_deposit - total_withdraw,
+        total_deposit=period_deposit,
+        total_withdraw=period_withdraw,
+        invested_capital=cum_deposit - cum_withdraw,
         total_realised_pl=round(total_realised, 0),
         positions=positions,
     )

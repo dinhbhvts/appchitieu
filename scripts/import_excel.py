@@ -52,7 +52,11 @@ from app.models.enums import (  # noqa: E402
     TradeSide,
     TransactionType,
 )
-from app.models.stock import StockCashFlow, StockTrade  # noqa: E402
+from app.models.stock import (  # noqa: E402
+    StockCashFlow,
+    StockHolding,
+    StockTrade,
+)
 from app.models.transaction import Transaction  # noqa: E402
 from app.models.user import User  # noqa: E402
 
@@ -345,6 +349,7 @@ def import_workbook(path: Path, fresh: bool) -> None:
             deleted_assets = db.query(AssetSnapshot).delete()
             db.query(StockTrade).delete()
             db.query(StockCashFlow).delete()
+            db.query(StockHolding).delete()
             db.commit()
             print(f"Da xoa {deleted} giao dich va {deleted_assets} dong tai "
                   f"san cu + du lieu chung khoan cu (che do --fresh).")
@@ -490,6 +495,38 @@ def import_workbook(path: Path, fresh: bool) -> None:
             print(f"   {y}: {stats_by_year[y]:,}")
         print(f"\nTai san (net worth)   : {len(asset_batch):,} dong / "
               f"{asset_months} thang co du lieu")
+
+        # --- Seed the manual "holdings" list from the trade log ---
+        # For each person and ticker, compute how many shares are still held and
+        # their cost basis, and create an initial holding (the user can then
+        # update the value with the current market price).
+        holding_rows = 0
+        by_user_symbol: dict[tuple[int, str], list] = {}
+        for t in sorted(stock_trade_batch, key=lambda x: (x.date, x.symbol)):
+            by_user_symbol.setdefault((t.user_id, t.symbol), []).append(t)
+        for (uid, symbol), ts in by_user_symbol.items():
+            held = 0
+            cost = 0.0
+            for t in ts:
+                q = int(t.quantity)
+                p = float(t.price)
+                f = float(t.fee)
+                if t.side == TradeSide.buy:
+                    cost += q * p + f
+                    held += q
+                else:
+                    avg = cost / held if held > 0 else 0.0
+                    cost -= avg * q
+                    held -= q
+            if held > 0:
+                avg = cost / held if held > 0 else 0.0
+                db.add(StockHolding(
+                    user_id=uid, symbol=symbol, quantity=held,
+                    value=round(held * avg), note="import",
+                ))
+                holding_rows += 1
+        db.commit()
+        print(f"Danh muc dang giu (tu lenh): {holding_rows} khoan")
 
         n_dep = sum(1 for c in stock_cf_batch if c.type == CashFlowType.deposit)
         n_wd = len(stock_cf_batch) - n_dep
