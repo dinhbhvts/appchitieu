@@ -7,7 +7,12 @@ happens as soon as `app.models` is imported anywhere.
 
 from app.models.asset import AssetSnapshot
 from app.models.category import Category
-from app.models.stock import StockCashFlow, StockHolding, StockTrade
+from app.models.stock import (
+    StockCashFlow,
+    StockHolding,
+    StockMonthSummary,
+    StockTrade,
+)
 from app.models.transaction import Transaction
 from app.models.user import User
 
@@ -16,6 +21,7 @@ __all__ = [
     "Category",
     "StockCashFlow",
     "StockHolding",
+    "StockMonthSummary",
     "StockTrade",
     "Transaction",
     "User",

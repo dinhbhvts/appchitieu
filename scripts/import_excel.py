@@ -55,6 +55,7 @@ from app.models.enums import (  # noqa: E402
 from app.models.stock import (  # noqa: E402
     StockCashFlow,
     StockHolding,
+    StockMonthSummary,
     StockTrade,
 )
 from app.models.transaction import Transaction  # noqa: E402
@@ -192,28 +193,56 @@ def extract_holdings(rows: list) -> list[dict]:
         return []
 
     holdings: list[dict] = []
-    blanks = 0
     for i in range(label_idx + 1, len(rows)):
-        r = list(rows[i]) + [None] * 10
+        r = list(rows[i]) + [None] * 16
+        b = _strip_accents(r[1])
+        # Stop when we reach the block's TOTAL / summary lines.
+        if any(k in b for k in ("total", "tong", "loi nhuan")):
+            break
         d, e, g = r[3], r[4], r[6]
         if _strip_accents(d) == "ma ck":     # header line
             continue
-        if d is None or str(d).strip() == "":
-            blanks += 1
-            if blanks >= 6:                  # a run of empties -> end of block
-                break
+        # Blank rows separate the wife's and husband's parts - just skip them.
+        if not (_is_symbol(d) and isinstance(e, (int, float)) and e > 0
+                and isinstance(g, (int, float)) and g > 0):
             continue
-        blanks = 0
-        if _is_symbol(d) and isinstance(e, (int, float)) and e > 0 \
-                and isinstance(g, (int, float)) and g > 0:
-            holdings.append({
-                "symbol": d.strip().upper(),
-                "quantity": int(e),
-                "value": float(g),
-            })
-        else:
-            break                            # a non-symbol label -> next section
+        # Owner from the H/D marker in column O (index 14): H = Vợ, D = Chồng.
+        marker = str(r[14]).strip() if r[14] is not None else ""
+        owner = "Chồng" if marker == "D" else "Vợ"
+        holdings.append({
+            "symbol": d.strip().upper(),
+            "quantity": int(e),
+            "value": float(g),
+            "owner": owner,
+        })
     return holdings
+
+
+def extract_tonghop(rows: list) -> dict:
+    """Read the "TỔNG HỢP CK" table: cumulative deposit (col C) and withdraw
+    (col D) per person. Returns {owner_name: (cum_deposit, cum_withdraw)}.
+    """
+    idx = None
+    for i, raw in enumerate(rows):
+        r = list(raw) + [None] * 6
+        if "tong hop ck" in _strip_accents(r[1]):
+            idx = i
+            break
+    if idx is None:
+        return {}
+    result: dict[str, tuple[float, float]] = {}
+    for i in range(idx + 1, min(idx + 6, len(rows))):
+        r = list(rows[i]) + [None] * 6
+        name = _strip_accents(r[1])
+        c, d = r[2], r[3]
+        if not isinstance(c, (int, float)):
+            continue
+        wd = float(d) if isinstance(d, (int, float)) else 0.0
+        if "hue" in name:
+            result["Vợ"] = (float(c), wd)
+        elif "dinh" in name or "chong" in name:
+            result["Chồng"] = (float(c), wd)
+    return result
 
 
 def _stock_owner(r: list, note_norm: str) -> str:
@@ -395,6 +424,7 @@ def import_workbook(path: Path, fresh: bool) -> None:
             db.query(StockTrade).delete()
             db.query(StockCashFlow).delete()
             db.query(StockHolding).delete()
+            db.query(StockMonthSummary).delete()
             db.commit()
             print(f"Da xoa {deleted} giao dich va {deleted_assets} dong tai "
                   f"san cu + du lieu chung khoan cu (che do --fresh).")
@@ -416,6 +446,8 @@ def import_workbook(path: Path, fresh: bool) -> None:
         stock_trade_batch: list[StockTrade] = []
         # Latest "ĐANG GIỮ" snapshot found (sheets are chronological, last wins).
         latest_holdings: list[dict] = []
+        # Per-month cumulative deposit/withdraw snapshots (TỔNG HỢP CK table).
+        stock_month_batch: list[StockMonthSummary] = []
 
         for sheet_name in wb.sheetnames:
             if sheet_name in SKIP_SHEETS:
@@ -443,6 +475,14 @@ def import_workbook(path: Path, fresh: bool) -> None:
             hlds = extract_holdings(rows)
             if hlds:
                 latest_holdings = hlds
+
+            # --- "TỔNG HỢP CK" cumulative deposit/withdraw per person ---
+            for owner, (cd, cw) in extract_tonghop(rows).items():
+                uid = users.get(owner, default_uid)
+                stock_month_batch.append(StockMonthSummary(
+                    year=year, month=month, user_id=uid,
+                    cum_deposit=cd, cum_withdraw=cw,
+                ))
 
             # --- Stock section (nap/rut + mua/ban) for this sheet's month ---
             cfs, trs = extract_stock_rows(rows, year, month)
@@ -535,6 +575,7 @@ def import_workbook(path: Path, fresh: bool) -> None:
         db.add_all(asset_batch)
         db.add_all(stock_cf_batch)
         db.add_all(stock_trade_batch)
+        db.add_all(stock_month_batch)
         db.commit()
 
         print("\n==== KET QUA IMPORT ====")
@@ -549,14 +590,12 @@ def import_workbook(path: Path, fresh: bool) -> None:
               f"{asset_months} thang co du lieu")
 
         # --- Holdings: from the latest "ĐANG GIỮ" snapshot in the file ---
-        # This is the actively-traded account (predominantly the wife's), so
-        # the snapshot is assigned to Vợ. (The husband's holding, if any, is a
-        # lump not detailed per ticker in the file; add it by hand if needed.)
-        vo_uid = users.get("Vợ", default_uid)
+        # Owner comes from the H/D marker (H = Vợ, D = Chồng) in the block.
         for h in latest_holdings:
-            db.add(StockHolding(user_id=vo_uid, note="import", **h))
+            uid = users.get(h.pop("owner"), default_uid)
+            db.add(StockHolding(user_id=uid, note="import", **h))
         db.commit()
-        print(f"Danh muc dang giu (ĐANG GIỮ, gan cho Vo): {len(latest_holdings)} ma")
+        print(f"Danh muc dang giu (ĐANG GIỮ): {len(latest_holdings)} ma")
 
         n_dep = sum(1 for c in stock_cf_batch if c.type == CashFlowType.deposit)
         n_wd = len(stock_cf_batch) - n_dep

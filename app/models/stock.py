@@ -121,3 +121,26 @@ class StockHolding(Base):
     updated_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+
+
+class StockMonthSummary(Base):
+    """Per-person cumulative deposit/withdraw for a month, taken from the
+    "TỔNG HỢP CK" table in the Excel file (the authoritative running totals).
+
+    For months in the imported history these are the file's numbers. For newer
+    months the app extends the latest snapshot with subsequent cash flows.
+    """
+
+    __tablename__ = "stock_month_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    month: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    cum_deposit: Mapped[float] = mapped_column(Numeric(18, 0), default=0)
+    cum_withdraw: Mapped[float] = mapped_column(Numeric(18, 0), default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )

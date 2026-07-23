@@ -3,7 +3,12 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.stock import StockCashFlow, StockHolding, StockTrade
+from app.models.stock import (
+    StockCashFlow,
+    StockHolding,
+    StockMonthSummary,
+    StockTrade,
+)
 
 
 def create_cashflow(db: Session, data: dict) -> StockCashFlow:
@@ -120,3 +125,25 @@ def update_holding(db: Session, row: StockHolding, changes: dict) -> StockHoldin
 def delete_holding(db: Session, row: StockHolding) -> None:
     db.delete(row)
     db.commit()
+
+
+# --- Monthly cumulative snapshots (TONG HOP CK) --------------------------
+
+def latest_summary_before(db: Session, user_id: int, year: int, month: int):
+    """The most recent StockMonthSummary for a user with (year, month) <= given."""
+    key = year * 100 + month
+    stmt = (
+        select(StockMonthSummary)
+        .where(
+            StockMonthSummary.user_id == user_id,
+            (StockMonthSummary.year * 100 + StockMonthSummary.month) <= key,
+        )
+        .order_by((StockMonthSummary.year * 100 + StockMonthSummary.month).desc())
+    )
+    return db.scalars(stmt).first()
+
+
+def summary_user_ids(db: Session) -> list[int]:
+    """Distinct user ids that have any monthly summary."""
+    stmt = select(StockMonthSummary.user_id).distinct()
+    return list(db.scalars(stmt).all())

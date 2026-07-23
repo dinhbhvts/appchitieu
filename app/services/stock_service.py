@@ -135,40 +135,94 @@ def _positions(db: Session, user_id: int | None = None,
     return positions
 
 
+import datetime as _dt
+
+
+def _month_end(year: int, month: int) -> _dt.date:
+    """Last calendar day of a month."""
+    if month == 12:
+        return _dt.date(year, 12, 31)
+    return _dt.date(year, month + 1, 1) - _dt.timedelta(days=1)
+
+
+def _cum_for_user(db: Session, user_id: int, year: int, month: int):
+    """Cumulative (deposit, withdraw) for one person up to a month.
+
+    Uses the authoritative "TỔNG HỢP CK" snapshot when available, extending it
+    with later cash flows for months after the imported history.
+    """
+    snap = repo.latest_summary_before(db, user_id, year, month)
+    if snap is None:
+        # No snapshot: fall back to summing the recorded cash flows.
+        end = _month_end(year, month)
+        cfs = repo.list_cashflows(db, user_id=user_id)
+        dep = sum(float(c.amount) for c in cfs
+                  if c.type == CashFlowType.deposit and c.date <= end)
+        wd = sum(float(c.amount) for c in cfs
+                 if c.type == CashFlowType.withdraw and c.date <= end)
+        return dep, wd
+    if snap.year == year and snap.month == month:
+        return float(snap.cum_deposit), float(snap.cum_withdraw)
+    # Extend the snapshot with cash flows recorded after it.
+    snap_end = _month_end(snap.year, snap.month)
+    end = _month_end(year, month)
+    cfs = repo.list_cashflows(db, user_id=user_id)
+    extra_dep = sum(float(c.amount) for c in cfs
+                    if c.type == CashFlowType.deposit and snap_end < c.date <= end)
+    extra_wd = sum(float(c.amount) for c in cfs
+                   if c.type == CashFlowType.withdraw and snap_end < c.date <= end)
+    return float(snap.cum_deposit) + extra_dep, float(snap.cum_withdraw) + extra_wd
+
+
+def _cum(db: Session, user_id: int | None, year: int, month: int):
+    """Cumulative (deposit, withdraw) for a person or, if user_id is None, the
+    sum across everyone with snapshots (combined view)."""
+    if user_id is not None:
+        return _cum_for_user(db, user_id, year, month)
+    uids = repo.summary_user_ids(db)
+    if not uids:
+        # No snapshots at all: sum recorded cash flows for everyone.
+        end = _month_end(year, month)
+        cfs = repo.list_cashflows(db)
+        dep = sum(float(c.amount) for c in cfs
+                  if c.type == CashFlowType.deposit and c.date <= end)
+        wd = sum(float(c.amount) for c in cfs
+                 if c.type == CashFlowType.withdraw and c.date <= end)
+        return dep, wd
+    dep = wd = 0.0
+    for u in uids:
+        d, w = _cum_for_user(db, u, year, month)
+        dep += d
+        wd += w
+    return dep, wd
+
+
 def summary(db: Session, user_id: int | None = None,
             start=None, end=None) -> StockSummary:
     """Top-of-screen totals plus the per-ticker breakdown.
 
-    - total_deposit / total_withdraw: for the [start, end] period (that month)
-      when given; otherwise all-time.
-    - invested_capital: CUMULATIVE net money put in up to `end` (money currently
-      in the account), not just the period.
-    - total_realised_pl: CUMULATIVE realised profit/loss up to `end`.
+    - total_deposit / total_withdraw: for the selected month (= cumulative this
+      month minus cumulative previous month).
+    - cum_deposit / cum_withdraw: cumulative to the end of the month (from the
+      file's TỔNG HỢP CK snapshots, extended for newer months).
+    - invested_capital: cum_deposit - cum_withdraw.
+    - total_realised_pl: cumulative realised profit/loss up to `end`.
     """
-    cashflows = repo.list_cashflows(db, user_id=user_id)
-
-    def in_period(d) -> bool:
-        return (start is None or d >= start) and (end is None or d <= end)
-
-    def up_to(d) -> bool:
-        return end is None or d <= end
-
-    period_deposit = sum(
-        float(c.amount) for c in cashflows
-        if c.type == CashFlowType.deposit and in_period(c.date)
-    )
-    period_withdraw = sum(
-        float(c.amount) for c in cashflows
-        if c.type == CashFlowType.withdraw and in_period(c.date)
-    )
-    cum_deposit = sum(
-        float(c.amount) for c in cashflows
-        if c.type == CashFlowType.deposit and up_to(c.date)
-    )
-    cum_withdraw = sum(
-        float(c.amount) for c in cashflows
-        if c.type == CashFlowType.withdraw and up_to(c.date)
-    )
+    if end is None:
+        # No period given (all-time): compute straight from the cash flows.
+        cashflows = repo.list_cashflows(db, user_id=user_id)
+        cum_deposit = sum(float(c.amount) for c in cashflows
+                          if c.type == CashFlowType.deposit)
+        cum_withdraw = sum(float(c.amount) for c in cashflows
+                           if c.type == CashFlowType.withdraw)
+        period_deposit, period_withdraw = cum_deposit, cum_withdraw
+    else:
+        year, month = end.year, end.month
+        py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
+        cum_deposit, cum_withdraw = _cum(db, user_id, year, month)
+        prev_deposit, prev_withdraw = _cum(db, user_id, py, pm)
+        period_deposit = cum_deposit - prev_deposit
+        period_withdraw = cum_withdraw - prev_withdraw
 
     positions = _positions(db, user_id=user_id, end=end)
     total_realised = sum(p.realised_pl for p in positions)
