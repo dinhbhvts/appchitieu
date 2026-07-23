@@ -71,9 +71,11 @@ class SymbolPosition(BaseModel):
 class StockSummary(BaseModel):
     """Top-of-screen totals for the stock module."""
 
-    total_deposit: float        # tong da nap
-    total_withdraw: float       # tong da rut
-    invested_capital: float     # nap - rut (net money put in)
+    total_deposit: float        # nap trong ky (thang)
+    total_withdraw: float       # rut trong ky (thang)
+    cum_deposit: float = 0      # tong da nap luy ke den cuoi ky
+    cum_withdraw: float = 0     # tong da rut luy ke den cuoi ky
+    invested_capital: float     # cum_deposit - cum_withdraw (von rong)
     total_realised_pl: float    # sum of realised profit/loss across symbols
     positions: list[SymbolPosition]
 

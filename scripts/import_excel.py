@@ -89,7 +89,9 @@ def _strip_accents(text) -> str:
         return ""
     decomposed = unicodedata.normalize("NFD", str(text))
     no_marks = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
-    return no_marks.lower().strip()
+    # "Đ"/"đ" is a distinct letter (not d + a combining mark), so NFD does not
+    # strip it - map it to "d" explicitly for accent-insensitive matching.
+    return no_marks.lower().replace("đ", "d").strip()
 
 
 def is_summary_row(content, day_cell) -> bool:
@@ -169,6 +171,49 @@ def _parse_million_text(text) -> float | None:
 def _is_symbol(v) -> bool:
     """True if the value looks like a ticker symbol (2-5 letters)."""
     return isinstance(v, str) and bool(re.fullmatch(r"[A-Z]{2,5}", v.strip().upper()))
+
+
+def extract_holdings(rows: list) -> list[dict]:
+    """Read the "ĐANG GIỮ" (currently-held) snapshot from a monthly sheet.
+
+    The block sits below the buy/sell log, marked by "ĐANG GIỮ" in column D,
+    then a header row (Mã CK | Khối lượng | Giá CP | Số tiền), then rows of
+    D=symbol, E=quantity, F=unit price, G=total value. Blank rows are skipped;
+    the block ends at the next label. Returns a list of {symbol, quantity,
+    value}.
+    """
+    label_idx = None
+    for i, raw in enumerate(rows):
+        r = list(raw) + [None] * 10
+        if _strip_accents(r[3]) == "dang giu":
+            label_idx = i
+            break
+    if label_idx is None:
+        return []
+
+    holdings: list[dict] = []
+    blanks = 0
+    for i in range(label_idx + 1, len(rows)):
+        r = list(rows[i]) + [None] * 10
+        d, e, g = r[3], r[4], r[6]
+        if _strip_accents(d) == "ma ck":     # header line
+            continue
+        if d is None or str(d).strip() == "":
+            blanks += 1
+            if blanks >= 6:                  # a run of empties -> end of block
+                break
+            continue
+        blanks = 0
+        if _is_symbol(d) and isinstance(e, (int, float)) and e > 0 \
+                and isinstance(g, (int, float)) and g > 0:
+            holdings.append({
+                "symbol": d.strip().upper(),
+                "quantity": int(e),
+                "value": float(g),
+            })
+        else:
+            break                            # a non-symbol label -> next section
+    return holdings
 
 
 def _stock_owner(r: list, note_norm: str) -> str:
@@ -369,6 +414,8 @@ def import_workbook(path: Path, fresh: bool) -> None:
         # Stock accumulators (all assigned to the default user).
         stock_cf_batch: list[StockCashFlow] = []
         stock_trade_batch: list[StockTrade] = []
+        # Latest "ĐANG GIỮ" snapshot found (sheets are chronological, last wins).
+        latest_holdings: list[dict] = []
 
         for sheet_name in wb.sheetnames:
             if sheet_name in SKIP_SHEETS:
@@ -391,6 +438,11 @@ def import_workbook(path: Path, fresh: bool) -> None:
                         year=year, month=month, name=name, value=value,
                         note=note,
                     ))
+
+            # --- "ĐANG GIỮ" holdings snapshot for this month (latest wins) ---
+            hlds = extract_holdings(rows)
+            if hlds:
+                latest_holdings = hlds
 
             # --- Stock section (nap/rut + mua/ban) for this sheet's month ---
             cfs, trs = extract_stock_rows(rows, year, month)
@@ -496,37 +548,15 @@ def import_workbook(path: Path, fresh: bool) -> None:
         print(f"\nTai san (net worth)   : {len(asset_batch):,} dong / "
               f"{asset_months} thang co du lieu")
 
-        # --- Seed the manual "holdings" list from the trade log ---
-        # For each person and ticker, compute how many shares are still held and
-        # their cost basis, and create an initial holding (the user can then
-        # update the value with the current market price).
-        holding_rows = 0
-        by_user_symbol: dict[tuple[int, str], list] = {}
-        for t in sorted(stock_trade_batch, key=lambda x: (x.date, x.symbol)):
-            by_user_symbol.setdefault((t.user_id, t.symbol), []).append(t)
-        for (uid, symbol), ts in by_user_symbol.items():
-            held = 0
-            cost = 0.0
-            for t in ts:
-                q = int(t.quantity)
-                p = float(t.price)
-                f = float(t.fee)
-                if t.side == TradeSide.buy:
-                    cost += q * p + f
-                    held += q
-                else:
-                    avg = cost / held if held > 0 else 0.0
-                    cost -= avg * q
-                    held -= q
-            if held > 0:
-                avg = cost / held if held > 0 else 0.0
-                db.add(StockHolding(
-                    user_id=uid, symbol=symbol, quantity=held,
-                    value=round(held * avg), note="import",
-                ))
-                holding_rows += 1
+        # --- Holdings: from the latest "ĐANG GIỮ" snapshot in the file ---
+        # This is the actively-traded account (predominantly the wife's), so
+        # the snapshot is assigned to Vợ. (The husband's holding, if any, is a
+        # lump not detailed per ticker in the file; add it by hand if needed.)
+        vo_uid = users.get("Vợ", default_uid)
+        for h in latest_holdings:
+            db.add(StockHolding(user_id=vo_uid, note="import", **h))
         db.commit()
-        print(f"Danh muc dang giu (tu lenh): {holding_rows} khoan")
+        print(f"Danh muc dang giu (ĐANG GIỮ, gan cho Vo): {len(latest_holdings)} ma")
 
         n_dep = sum(1 for c in stock_cf_batch if c.type == CashFlowType.deposit)
         n_wd = len(stock_cf_batch) - n_dep

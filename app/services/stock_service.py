@@ -176,6 +176,8 @@ def summary(db: Session, user_id: int | None = None,
     return StockSummary(
         total_deposit=period_deposit,
         total_withdraw=period_withdraw,
+        cum_deposit=cum_deposit,
+        cum_withdraw=cum_withdraw,
         invested_capital=cum_deposit - cum_withdraw,
         total_realised_pl=round(total_realised, 0),
         positions=positions,
