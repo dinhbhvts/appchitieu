@@ -65,7 +65,19 @@ class Transaction(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+    # Audit trail (not shown in the UI - only for inspecting the DB directly):
+    # when the row was last changed and by which logged-in user.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
 
     # Python-side links for convenient access (transaction.user, .category).
-    user: Mapped["User"] = relationship(back_populates="transactions")
+    # foreign_keys is required because the table now has two FKs to users
+    # (user_id = owner, updated_by = audit); the relationship uses user_id.
+    user: Mapped["User"] = relationship(
+        back_populates="transactions", foreign_keys=[user_id]
+    )
     category: Mapped["Category | None"] = relationship()

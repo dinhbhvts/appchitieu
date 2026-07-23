@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import get_current_user
+from app.models.user import User
 from app.schemas.common import Message
 from app.schemas.transaction import (
     TransactionCreate,
@@ -37,9 +39,13 @@ def list_transactions(
 
 
 @router.post("", response_model=TransactionRead, status_code=201)
-def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)):
+def create_transaction(
+    payload: TransactionCreate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
     """Create a transaction (the main daily action)."""
-    return service.create_transaction(db, payload)
+    return service.create_transaction(db, payload, actor_id=current.id)
 
 
 @router.put("/{transaction_id}", response_model=TransactionRead)
@@ -47,9 +53,11 @@ def update_transaction(
     transaction_id: int,
     payload: TransactionUpdate,
     db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
 ):
     """Edit an existing transaction."""
-    row = service.update_transaction(db, transaction_id, payload)
+    row = service.update_transaction(
+        db, transaction_id, payload, actor_id=current.id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy giao dịch")
     return row

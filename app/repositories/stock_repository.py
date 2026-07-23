@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.stock import StockCashFlow, StockTrade
+from app.models.stock import StockCashFlow, StockHolding, StockTrade
 
 
 def create_cashflow(db: Session, data: dict) -> StockCashFlow:
@@ -82,5 +82,41 @@ def update_trade(db: Session, row: StockTrade, changes: dict) -> StockTrade:
 
 
 def delete_trade(db: Session, row: StockTrade) -> None:
+    db.delete(row)
+    db.commit()
+
+
+# --- Manual holdings ------------------------------------------------------
+
+
+def create_holding(db: Session, data: dict) -> StockHolding:
+    row = StockHolding(**data)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def get_holding(db: Session, hid: int) -> StockHolding | None:
+    return db.get(StockHolding, hid)
+
+
+def list_holdings(db: Session, user_id: int | None = None) -> list[StockHolding]:
+    stmt = select(StockHolding)
+    if user_id is not None:
+        stmt = stmt.where(StockHolding.user_id == user_id)
+    stmt = stmt.order_by(StockHolding.symbol.asc())
+    return list(db.scalars(stmt).all())
+
+
+def update_holding(db: Session, row: StockHolding, changes: dict) -> StockHolding:
+    for field, value in changes.items():
+        setattr(row, field, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_holding(db: Session, row: StockHolding) -> None:
     db.delete(row)
     db.commit()

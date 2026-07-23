@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import get_current_user
+from app.models.user import User
 from app.schemas.asset import (
     AssetHistoryItem,
     AssetItemCreate,
@@ -30,17 +32,24 @@ def history(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=AssetItemRead, status_code=201)
-def add_item(payload: AssetItemCreate, db: Session = Depends(get_db)):
+def add_item(
+    payload: AssetItemCreate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
     """Add one asset line to a month."""
-    return service.add_item(db, payload)
+    return service.add_item(db, payload, actor_id=current.id)
 
 
 @router.put("/{item_id}", response_model=AssetItemRead)
 def update_item(
-    item_id: int, payload: AssetItemUpdate, db: Session = Depends(get_db)
+    item_id: int,
+    payload: AssetItemUpdate,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
 ):
     """Edit an asset line."""
-    row = service.update_item(db, item_id, payload)
+    row = service.update_item(db, item_id, payload, actor_id=current.id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài sản")
     return row

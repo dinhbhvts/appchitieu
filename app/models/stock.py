@@ -46,6 +46,12 @@ class StockCashFlow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
 
 
 class StockTrade(Base):
@@ -75,4 +81,41 @@ class StockTrade(Base):
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
+class StockHolding(Base):
+    """A manually-entered "currently held" line per person.
+
+    Unlike the per-ticker positions computed from trades, this is a value the
+    user types in directly (mã + current value in VND). It is NOT derived from
+    the buy/sell log - the user maintains it by hand.
+    """
+
+    __tablename__ = "stock_holdings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    # Ticker or free label, e.g. "NKG".
+    symbol: Mapped[str] = mapped_column(String(50), nullable=False)
+    # Current value in VND (money), typed by the user.
+    value: Mapped[float] = mapped_column(Numeric(18, 0), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
     )

@@ -18,6 +18,8 @@ from app.models.enums import CashFlowType, TradeSide
 from app.repositories import stock_repository as repo
 from app.schemas.stock import (
     CashFlowCreate,
+    HoldingCreate,
+    HoldingUpdate,
     CashFlowUpdate,
     StockSummary,
     SymbolPosition,
@@ -26,25 +28,30 @@ from app.schemas.stock import (
 )
 
 
-def create_cashflow(db: Session, payload: CashFlowCreate):
+def create_cashflow(db: Session, payload: CashFlowCreate, actor_id=None):
     """Record a deposit or withdrawal into the brokerage account."""
-    return repo.create_cashflow(db, payload.model_dump())
+    data = payload.model_dump()
+    data["updated_by"] = actor_id
+    return repo.create_cashflow(db, data)
 
 
-def create_trade(db: Session, payload: TradeCreate):
+def create_trade(db: Session, payload: TradeCreate, actor_id=None):
     """Record a buy or sell order. Symbol is normalised to upper-case so
     'nkg' and 'NKG' are treated as the same ticker."""
     data = payload.model_dump()
     data["symbol"] = data["symbol"].strip().upper()
+    data["updated_by"] = actor_id
     return repo.create_trade(db, data)
 
 
-def update_cashflow(db: Session, cid: int, payload: CashFlowUpdate):
+def update_cashflow(db: Session, cid: int, payload: CashFlowUpdate, actor_id=None):
     """Edit a deposit/withdrawal; returns None if the id does not exist."""
     row = repo.get_cashflow(db, cid)
     if row is None:
         return None
-    return repo.update_cashflow(db, row, payload.model_dump(exclude_unset=True))
+    changes = payload.model_dump(exclude_unset=True)
+    changes["updated_by"] = actor_id
+    return repo.update_cashflow(db, row, changes)
 
 
 def delete_cashflow(db: Session, cid: int) -> bool:
@@ -55,7 +62,7 @@ def delete_cashflow(db: Session, cid: int) -> bool:
     return True
 
 
-def update_trade(db: Session, tid: int, payload: TradeUpdate):
+def update_trade(db: Session, tid: int, payload: TradeUpdate, actor_id=None):
     """Edit a buy/sell order; returns None if the id does not exist."""
     row = repo.get_trade(db, tid)
     if row is None:
@@ -63,6 +70,7 @@ def update_trade(db: Session, tid: int, payload: TradeUpdate):
     changes = payload.model_dump(exclude_unset=True)
     if "symbol" in changes and changes["symbol"]:
         changes["symbol"] = changes["symbol"].strip().upper()
+    changes["updated_by"] = actor_id
     return repo.update_trade(db, row, changes)
 
 
@@ -153,3 +161,36 @@ def list_cashflows(db: Session, user_id: int | None = None):
 def list_trades(db: Session, user_id: int | None = None):
     """Buy/sell orders, oldest first (optionally for one person)."""
     return repo.list_trades(db, user_id=user_id)
+
+
+# --- Manual holdings ------------------------------------------------------
+
+def list_holdings(db: Session, user_id: int | None = None):
+    """Manually-entered holdings (optionally for one person)."""
+    return repo.list_holdings(db, user_id=user_id)
+
+
+def create_holding(db: Session, payload: HoldingCreate, actor_id=None):
+    data = payload.model_dump()
+    data["symbol"] = data["symbol"].strip().upper()
+    data["updated_by"] = actor_id
+    return repo.create_holding(db, data)
+
+
+def update_holding(db: Session, hid: int, payload: HoldingUpdate, actor_id=None):
+    row = repo.get_holding(db, hid)
+    if row is None:
+        return None
+    changes = payload.model_dump(exclude_unset=True)
+    if "symbol" in changes and changes["symbol"]:
+        changes["symbol"] = changes["symbol"].strip().upper()
+    changes["updated_by"] = actor_id
+    return repo.update_holding(db, row, changes)
+
+
+def delete_holding(db: Session, hid: int) -> bool:
+    row = repo.get_holding(db, hid)
+    if row is None:
+        return False
+    repo.delete_holding(db, row)
+    return True

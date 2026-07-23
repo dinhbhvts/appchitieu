@@ -423,22 +423,52 @@ def import_workbook(path: Path, fresh: bool) -> None:
                     text = "(khong ghi)"
 
                 marker = str(ghichu).strip() if ghichu is not None else ""
-                user_id = users.get(MARKER_TO_USERNAME.get(marker, ""), default_uid)
-                # Keep the original marker in the note for traceability.
+                marker_uid = users.get(
+                    MARKER_TO_USERNAME.get(marker, ""), default_uid)
                 note = f"import:{marker}" if marker else "import"
+                chong_uid = users.get("Chồng", default_uid)
+                vo_uid = users.get("Vợ", default_uid)
+                cnorm = _strip_accents(text)
 
                 # One income and/or one expense transaction from this row.
                 if income > 0:
+                    # Opening monthly salary lines get special owner handling:
+                    #  - "Lương vợ"      -> the wife's income
+                    #  - "Chồng ck"      -> husband's income AND a transfer to
+                    #                       the wife (this is the money he sends)
+                    #  - "Lương ck giữ"  -> husband's income (the part he keeps)
+                    transfer_amount = 0.0
+                    if "luong vo" in cnorm:
+                        inc_uid = vo_uid
+                    elif "chong ck" in cnorm:
+                        inc_uid = chong_uid
+                        transfer_amount = income
+                    elif "luong ck giu" in cnorm:
+                        inc_uid = chong_uid
+                    else:
+                        inc_uid = marker_uid
+
                     batch.append(Transaction(
                         date=tx_date, type=TransactionType.income, amount=income,
-                        content=text, user_id=user_id, note=note,
+                        content=text, user_id=inc_uid, note=note,
                     ))
                     total_income += income
                     stats_by_year[year] += 1
+
+                    # The "Chồng ck" amount is also recorded as an internal
+                    # transfer from husband to wife, so per-person reports show
+                    # "Chuyển cho vợ" / "Nhận từ chồng".
+                    if transfer_amount > 0:
+                        batch.append(Transaction(
+                            date=tx_date, type=TransactionType.transfer,
+                            amount=transfer_amount, content="Chuyển cho vợ",
+                            user_id=chong_uid, note="import:chuyen",
+                        ))
+                        stats_by_year[year] += 1
                 if expense > 0:
                     batch.append(Transaction(
                         date=tx_date, type=TransactionType.expense, amount=expense,
-                        content=text, user_id=user_id, note=note,
+                        content=text, user_id=marker_uid, note=note,
                     ))
                     total_expense += expense
                     stats_by_year[year] += 1

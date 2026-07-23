@@ -37,5 +37,5 @@ class User(Base):
     # Convenience back-references so we can do user.transactions in Python.
     # These do NOT create extra columns; they are virtual links.
     transactions: Mapped[list["Transaction"]] = relationship(
-        back_populates="user"
+        back_populates="user", foreign_keys="Transaction.user_id"
     )

@@ -4,11 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import get_current_user
+from app.models.user import User
 from app.schemas.common import Message
 from app.schemas.stock import (
     CashFlowCreate,
     CashFlowRead,
     CashFlowUpdate,
+    HoldingCreate,
+    HoldingRead,
+    HoldingUpdate,
     StockSummary,
     TradeCreate,
     TradeRead,
@@ -22,9 +27,10 @@ router = APIRouter(prefix="/stocks", tags=["stocks"])
 # --- Cash flows (deposits / withdrawals) ---------------------------------
 
 @router.post("/cashflows", response_model=CashFlowRead, status_code=201)
-def add_cashflow(payload: CashFlowCreate, db: Session = Depends(get_db)):
+def add_cashflow(payload: CashFlowCreate, db: Session = Depends(get_db),
+                 current: User = Depends(get_current_user)):
     """Record a deposit or withdrawal."""
-    return service.create_cashflow(db, payload)
+    return service.create_cashflow(db, payload, actor_id=current.id)
 
 
 @router.get("/cashflows", response_model=list[CashFlowRead])
@@ -35,10 +41,11 @@ def list_cashflows(user_id: int | None = None, db: Session = Depends(get_db)):
 
 @router.put("/cashflows/{cid}", response_model=CashFlowRead)
 def update_cashflow(
-    cid: int, payload: CashFlowUpdate, db: Session = Depends(get_db)
+    cid: int, payload: CashFlowUpdate, db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
 ):
     """Edit a deposit/withdrawal."""
-    row = service.update_cashflow(db, cid, payload)
+    row = service.update_cashflow(db, cid, payload, actor_id=current.id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy khoản nạp/rút")
     return row
@@ -55,9 +62,10 @@ def delete_cashflow(cid: int, db: Session = Depends(get_db)):
 # --- Trades (buy / sell) --------------------------------------------------
 
 @router.post("/trades", response_model=TradeRead, status_code=201)
-def add_trade(payload: TradeCreate, db: Session = Depends(get_db)):
+def add_trade(payload: TradeCreate, db: Session = Depends(get_db),
+              current: User = Depends(get_current_user)):
     """Record a buy or sell order."""
-    return service.create_trade(db, payload)
+    return service.create_trade(db, payload, actor_id=current.id)
 
 
 @router.get("/trades", response_model=list[TradeRead])
@@ -67,9 +75,10 @@ def list_trades(user_id: int | None = None, db: Session = Depends(get_db)):
 
 
 @router.put("/trades/{tid}", response_model=TradeRead)
-def update_trade(tid: int, payload: TradeUpdate, db: Session = Depends(get_db)):
+def update_trade(tid: int, payload: TradeUpdate, db: Session = Depends(get_db),
+                 current: User = Depends(get_current_user)):
     """Edit a buy/sell order."""
-    row = service.update_trade(db, tid, payload)
+    row = service.update_trade(db, tid, payload, actor_id=current.id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy lệnh")
     return row
@@ -81,6 +90,39 @@ def delete_trade(tid: int, db: Session = Depends(get_db)):
     if not service.delete_trade(db, tid):
         raise HTTPException(status_code=404, detail="Không tìm thấy lệnh")
     return Message(detail="Đã xóa lệnh")
+
+
+# --- Manual holdings (danh mục đang giữ, nhập tay) ------------------------
+
+@router.get("/holdings", response_model=list[HoldingRead])
+def list_holdings(user_id: int | None = None, db: Session = Depends(get_db)):
+    """List manually-entered holdings, optionally for one person."""
+    return service.list_holdings(db, user_id=user_id)
+
+
+@router.post("/holdings", response_model=HoldingRead, status_code=201)
+def add_holding(payload: HoldingCreate, db: Session = Depends(get_db),
+                current: User = Depends(get_current_user)):
+    """Add a manually-entered holding line."""
+    return service.create_holding(db, payload, actor_id=current.id)
+
+
+@router.put("/holdings/{hid}", response_model=HoldingRead)
+def update_holding(hid: int, payload: HoldingUpdate, db: Session = Depends(get_db),
+                   current: User = Depends(get_current_user)):
+    """Edit a holding."""
+    row = service.update_holding(db, hid, payload, actor_id=current.id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy khoản đang giữ")
+    return row
+
+
+@router.delete("/holdings/{hid}", response_model=Message)
+def delete_holding(hid: int, db: Session = Depends(get_db)):
+    """Delete a holding."""
+    if not service.delete_holding(db, hid):
+        raise HTTPException(status_code=404, detail="Không tìm thấy khoản đang giữ")
+    return Message(detail="Đã xóa khoản đang giữ")
 
 
 # --- Summary --------------------------------------------------------------

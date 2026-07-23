@@ -42,19 +42,26 @@ def get_month(db: Session, year: int, month: int) -> AssetMonth:
     )
 
 
-def add_item(db: Session, payload: AssetItemCreate) -> AssetSnapshot:
+def add_item(
+    db: Session, payload: AssetItemCreate, actor_id: int | None = None
+) -> AssetSnapshot:
     """Add one asset line to a month."""
-    return repo.create(db, payload.model_dump())
+    data = payload.model_dump()
+    data["updated_by"] = actor_id
+    return repo.create(db, data)
 
 
 def update_item(
-    db: Session, item_id: int, payload: AssetItemUpdate
+    db: Session, item_id: int, payload: AssetItemUpdate,
+    actor_id: int | None = None,
 ) -> AssetSnapshot | None:
     """Edit an asset line; returns None if the id does not exist."""
     row = repo.get(db, item_id)
     if row is None:
         return None
-    return repo.update(db, row, payload.model_dump(exclude_unset=True))
+    changes = payload.model_dump(exclude_unset=True)
+    changes["updated_by"] = actor_id
+    return repo.update(db, row, changes)
 
 
 def delete_item(db: Session, item_id: int) -> bool:

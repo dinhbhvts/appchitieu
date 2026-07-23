@@ -76,3 +76,26 @@ class StockSummary(BaseModel):
     invested_capital: float     # nap - rut (net money put in)
     total_realised_pl: float    # sum of realised profit/loss across symbols
     positions: list[SymbolPosition]
+
+
+class HoldingCreate(BaseModel):
+    """Add a manually-entered holding line."""
+
+    user_id: int
+    symbol: str
+    value: float = Field(..., gt=0)
+    note: str | None = None
+
+
+class HoldingRead(HoldingCreate):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HoldingUpdate(BaseModel):
+    """Edit a holding. All fields optional."""
+
+    symbol: str | None = None
+    value: float | None = Field(default=None, gt=0)
+    user_id: int | None = None
+    note: str | None = None

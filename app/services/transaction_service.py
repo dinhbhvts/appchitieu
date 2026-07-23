@@ -20,10 +20,15 @@ from app.schemas.transaction import (
 )
 
 
-def create_transaction(db: Session, payload: TransactionCreate) -> Transaction:
+def create_transaction(
+    db: Session, payload: TransactionCreate, actor_id: int | None = None
+) -> Transaction:
     """Validate-then-store a new transaction. Pydantic already checked types
-    and amount > 0, so we can trust the payload here."""
-    return repo.create(db, payload.model_dump())
+    and amount > 0, so we can trust the payload here. actor_id records who
+    made the change (audit)."""
+    data = payload.model_dump()
+    data["updated_by"] = actor_id
+    return repo.create(db, data)
 
 
 def list_with_running_balance(
@@ -60,7 +65,8 @@ def list_with_running_balance(
 
 
 def update_transaction(
-    db: Session, transaction_id: int, payload: TransactionUpdate
+    db: Session, transaction_id: int, payload: TransactionUpdate,
+    actor_id: int | None = None,
 ) -> Transaction | None:
     """Update an existing transaction; returns None if the id is unknown."""
     row = repo.get(db, transaction_id)
@@ -68,6 +74,7 @@ def update_transaction(
         return None
     # exclude_unset=True => only fields the client actually sent are changed.
     changes = payload.model_dump(exclude_unset=True)
+    changes["updated_by"] = actor_id
     return repo.update(db, row, changes)
 
 
