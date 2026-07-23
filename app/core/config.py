@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     # "*" is fine while developing; tighten it in production.
     cors_origins: str = "*"
 
+    # Secret key used to sign login tokens (JWT). MUST be overridden in
+    # production by setting the SECRET_KEY environment variable to a long
+    # random string. If it leaks, anyone could forge a login.
+    secret_key: str = "dev-only-change-me-in-production"
+
+    # How long a login stays valid, in days. 30 days keeps a family app
+    # convenient (no daily re-login) while still expiring eventually.
+    access_token_expire_days: int = 30
+
     # Tell pydantic to read a ".env" file sitting next to where we run the app.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

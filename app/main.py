@@ -6,7 +6,7 @@ Interactive docs:  http://127.0.0.1:8000/docs
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
@@ -18,12 +18,14 @@ from app.core.seed import seed
 from app import models  # noqa: F401
 from app.api.routes import (
     assets,
+    auth,
     categories,
     reports,
     stocks,
     transactions,
     users,
 )
+from app.core.security import get_current_user
 
 settings = get_settings()
 
@@ -59,10 +61,15 @@ def health_check():
     return {"status": "ok", "app": settings.app_name}
 
 
-# Register every group of endpoints under the app.
+# Open endpoints (no login required): health check, login, and the user list
+# (only names - needed by the login screen to offer a picker).
+app.include_router(auth.router)
 app.include_router(users.router)
-app.include_router(assets.router)
-app.include_router(categories.router)
-app.include_router(transactions.router)
-app.include_router(stocks.router)
-app.include_router(reports.router)
+
+# Protected endpoints: every data route requires a valid login token.
+_auth = [Depends(get_current_user)]
+app.include_router(assets.router, dependencies=_auth)
+app.include_router(categories.router, dependencies=_auth)
+app.include_router(transactions.router, dependencies=_auth)
+app.include_router(stocks.router, dependencies=_auth)
+app.include_router(reports.router, dependencies=_auth)

@@ -19,10 +19,27 @@ from app.schemas.asset import (
 
 
 def get_month(db: Session, year: int, month: int) -> AssetMonth:
-    """Return every asset line for a month plus the total (net worth)."""
+    """Return every asset line for a month, the total (net worth), and the
+    change versus the previous month (amount and %)."""
     items = repo.list_month(db, year, month)
     total = sum(float(i.value) for i in items)
-    return AssetMonth(year=year, month=month, total=total, items=items)
+
+    # Previous month's total, for the up/down comparison.
+    py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
+    prev_items = repo.list_month(db, py, pm)
+    prev_total = sum(float(i.value) for i in prev_items)
+
+    change_amount = total - prev_total
+    # % change only makes sense when the previous month had data.
+    change_pct = (
+        round(change_amount / prev_total * 100, 1) if prev_total > 0 else None
+    )
+
+    return AssetMonth(
+        year=year, month=month, total=total, items=items,
+        prev_total=prev_total, change_amount=change_amount,
+        change_pct=change_pct,
+    )
 
 
 def add_item(db: Session, payload: AssetItemCreate) -> AssetSnapshot:

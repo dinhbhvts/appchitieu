@@ -14,9 +14,34 @@ def create_cashflow(db: Session, data: dict) -> StockCashFlow:
     return row
 
 
-def list_cashflows(db: Session) -> list[StockCashFlow]:
-    stmt = select(StockCashFlow).order_by(StockCashFlow.date.asc())
+def get_cashflow(db: Session, cid: int) -> StockCashFlow | None:
+    return db.get(StockCashFlow, cid)
+
+
+def list_cashflows(
+    db: Session, user_id: int | None = None
+) -> list[StockCashFlow]:
+    """Deposits/withdrawals, oldest-first, optionally for one person."""
+    stmt = select(StockCashFlow)
+    if user_id is not None:
+        stmt = stmt.where(StockCashFlow.user_id == user_id)
+    stmt = stmt.order_by(StockCashFlow.date.asc(), StockCashFlow.id.asc())
     return list(db.scalars(stmt).all())
+
+
+def update_cashflow(
+    db: Session, row: StockCashFlow, changes: dict
+) -> StockCashFlow:
+    for field, value in changes.items():
+        setattr(row, field, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_cashflow(db: Session, row: StockCashFlow) -> None:
+    db.delete(row)
+    db.commit()
 
 
 def create_trade(db: Session, data: dict) -> StockTrade:
@@ -27,8 +52,14 @@ def create_trade(db: Session, data: dict) -> StockTrade:
     return row
 
 
-def list_trades(db: Session, symbol: str | None = None) -> list[StockTrade]:
-    """All trades, oldest-first, optionally filtered to one symbol.
+def get_trade(db: Session, tid: int) -> StockTrade | None:
+    return db.get(StockTrade, tid)
+
+
+def list_trades(
+    db: Session, symbol: str | None = None, user_id: int | None = None
+) -> list[StockTrade]:
+    """All trades, oldest-first, optionally filtered by symbol and/or person.
 
     Oldest-first matters: the average-cost calculation processes buys and sells
     in chronological order.
@@ -36,5 +67,20 @@ def list_trades(db: Session, symbol: str | None = None) -> list[StockTrade]:
     stmt = select(StockTrade)
     if symbol is not None:
         stmt = stmt.where(StockTrade.symbol == symbol)
+    if user_id is not None:
+        stmt = stmt.where(StockTrade.user_id == user_id)
     stmt = stmt.order_by(StockTrade.date.asc(), StockTrade.id.asc())
     return list(db.scalars(stmt).all())
+
+
+def update_trade(db: Session, row: StockTrade, changes: dict) -> StockTrade:
+    for field, value in changes.items():
+        setattr(row, field, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_trade(db: Session, row: StockTrade) -> None:
+    db.delete(row)
+    db.commit()

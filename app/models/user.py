@@ -22,6 +22,13 @@ class User(Base):
     # Display name shown in the app UI (e.g. "Chong", "Vo").
     name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
 
+    # Salted password hash for login. Nullable so a freshly-seeded user has no
+    # password until one is set (via scripts/set_password.py). Never store the
+    # raw password - only the hash produced by app.core.security.
+    password_hash: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+
     # When the row was created; the database fills this in automatically.
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()

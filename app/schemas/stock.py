@@ -20,6 +20,16 @@ class CashFlowRead(CashFlowCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CashFlowUpdate(BaseModel):
+    """Edit a deposit/withdrawal. All fields optional."""
+
+    date: date_type | None = None
+    type: CashFlowType | None = None
+    amount: float | None = Field(default=None, gt=0)
+    user_id: int | None = None
+    note: str | None = None
+
+
 class TradeCreate(BaseModel):
     date: date_type
     symbol: str
@@ -34,6 +44,19 @@ class TradeCreate(BaseModel):
 class TradeRead(TradeCreate):
     id: int
     model_config = ConfigDict(from_attributes=True)
+
+
+class TradeUpdate(BaseModel):
+    """Edit a buy/sell order. All fields optional."""
+
+    date: date_type | None = None
+    symbol: str | None = None
+    side: TradeSide | None = None
+    quantity: int | None = Field(default=None, gt=0)
+    price: float | None = Field(default=None, gt=0)
+    fee: float | None = Field(default=None, ge=0)
+    user_id: int | None = None
+    note: str | None = None
 
 
 class SymbolPosition(BaseModel):

@@ -18,9 +18,11 @@ from app.models.enums import CashFlowType, TradeSide
 from app.repositories import stock_repository as repo
 from app.schemas.stock import (
     CashFlowCreate,
+    CashFlowUpdate,
     StockSummary,
     SymbolPosition,
     TradeCreate,
+    TradeUpdate,
 )
 
 
@@ -37,9 +39,44 @@ def create_trade(db: Session, payload: TradeCreate):
     return repo.create_trade(db, data)
 
 
-def _positions(db: Session) -> list[SymbolPosition]:
+def update_cashflow(db: Session, cid: int, payload: CashFlowUpdate):
+    """Edit a deposit/withdrawal; returns None if the id does not exist."""
+    row = repo.get_cashflow(db, cid)
+    if row is None:
+        return None
+    return repo.update_cashflow(db, row, payload.model_dump(exclude_unset=True))
+
+
+def delete_cashflow(db: Session, cid: int) -> bool:
+    row = repo.get_cashflow(db, cid)
+    if row is None:
+        return False
+    repo.delete_cashflow(db, row)
+    return True
+
+
+def update_trade(db: Session, tid: int, payload: TradeUpdate):
+    """Edit a buy/sell order; returns None if the id does not exist."""
+    row = repo.get_trade(db, tid)
+    if row is None:
+        return None
+    changes = payload.model_dump(exclude_unset=True)
+    if "symbol" in changes and changes["symbol"]:
+        changes["symbol"] = changes["symbol"].strip().upper()
+    return repo.update_trade(db, row, changes)
+
+
+def delete_trade(db: Session, tid: int) -> bool:
+    row = repo.get_trade(db, tid)
+    if row is None:
+        return False
+    repo.delete_trade(db, row)
+    return True
+
+
+def _positions(db: Session, user_id: int | None = None) -> list[SymbolPosition]:
     """Compute the aggregated position for every ticker from its trades."""
-    trades = repo.list_trades(db)  # already ordered oldest-first
+    trades = repo.list_trades(db, user_id=user_id)  # oldest-first
 
     # Group trades by symbol while preserving chronological order.
     by_symbol: dict[str, list] = {}
@@ -83,9 +120,12 @@ def _positions(db: Session) -> list[SymbolPosition]:
     return positions
 
 
-def summary(db: Session) -> StockSummary:
-    """Top-of-screen totals plus the per-ticker breakdown."""
-    cashflows = repo.list_cashflows(db)
+def summary(db: Session, user_id: int | None = None) -> StockSummary:
+    """Top-of-screen totals plus the per-ticker breakdown.
+
+    Pass user_id to get one person's figures; omit for the combined view.
+    """
+    cashflows = repo.list_cashflows(db, user_id=user_id)
     total_deposit = sum(
         float(c.amount) for c in cashflows if c.type == CashFlowType.deposit
     )
@@ -93,7 +133,7 @@ def summary(db: Session) -> StockSummary:
         float(c.amount) for c in cashflows if c.type == CashFlowType.withdraw
     )
 
-    positions = _positions(db)
+    positions = _positions(db, user_id=user_id)
     total_realised = sum(p.realised_pl for p in positions)
 
     return StockSummary(
@@ -105,11 +145,11 @@ def summary(db: Session) -> StockSummary:
     )
 
 
-def list_cashflows(db: Session):
-    """Return all deposits/withdrawals, oldest first (for the history list)."""
-    return repo.list_cashflows(db)
+def list_cashflows(db: Session, user_id: int | None = None):
+    """Deposits/withdrawals, oldest first (optionally for one person)."""
+    return repo.list_cashflows(db, user_id=user_id)
 
 
-def list_trades(db: Session):
-    """Return all buy/sell orders, oldest first (for the history list)."""
-    return repo.list_trades(db)
+def list_trades(db: Session, user_id: int | None = None):
+    """Buy/sell orders, oldest first (optionally for one person)."""
+    return repo.list_trades(db, user_id=user_id)

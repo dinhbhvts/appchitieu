@@ -16,6 +16,7 @@ pydantic-settings>=2.6
 
 # Testing
 pytest>=8.3
+PyJWT>=2.9
 httpx>=0.28
 
 # GHI CHU: PostgreSQL (dung khi trien khai len may chu) can them driver.

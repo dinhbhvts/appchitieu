@@ -167,6 +167,24 @@ def _is_symbol(v) -> bool:
     return isinstance(v, str) and bool(re.fullmatch(r"[A-Z]{2,5}", v.strip().upper()))
 
 
+def _stock_owner(r: list, note_norm: str) -> str:
+    """Work out who a stock row belongs to (returns "Chồng" or "Vợ").
+
+    Priority: an explicit H/D marker (H = Vợ, D = Chồng) in columns N/O/P; then
+    the note ("Huế/Huệ" is the wife); otherwise default to Vợ, because this
+    brokerage log is overwhelmingly the wife's account.
+    """
+    for col in (13, 14, 15):
+        v = str(r[col]).strip() if r[col] is not None else ""
+        if v == "D":
+            return "Chồng"
+        if v == "H":
+            return "Vợ"
+    if "hue" in note_norm:
+        return "Vợ"
+    return "Vợ"
+
+
 def extract_stock_rows(rows: list, year: int, month: int):
     """Pull the stock section from the bottom of a monthly sheet.
 
@@ -180,7 +198,7 @@ def extract_stock_rows(rows: list, year: int, month: int):
     # Locate the sub-header row that has "Mã CK" in column D.
     sub = None
     for i, raw in enumerate(rows):
-        r = list(raw) + [None] * 12
+        r = list(raw) + [None] * 20
         if _strip_accents(r[3]) == "ma ck":
             sub = i
             break
@@ -191,7 +209,7 @@ def extract_stock_rows(rows: list, year: int, month: int):
     trades: list[dict] = []
     last_day = 1
     for i in range(sub + 1, len(rows)):
-        r = list(rows[i]) + [None] * 12
+        r = list(rows[i]) + [None] * 20
         note_text = r[1]
         b = _strip_accents(note_text)
         if any(k in b for k in _STOCK_SKIP):
@@ -201,36 +219,40 @@ def extract_stock_rows(rows: list, year: int, month: int):
         last_day = day
         d = safe_date(year, month, day)
 
+        owner = _stock_owner(r, b)                 # "Chồng" / "Vợ"
+        fee = float(r[11]) if isinstance(r[11], (int, float)) else 0.0  # col L
+
         # --- Cash flow (deposit / withdrawal) ---
-        # We REQUIRE the note to say "nạp" or "rút". This deliberately skips the
-        # blank-note cumulative-total row (which holds a big running sum in
-        # column C and would otherwise be mistaken for a deposit).
-        c_val = r[2]
-        if "rut" in b:  # withdrawal - amount may be in column C or in the text
-            amt = c_val if isinstance(c_val, (int, float)) and abs(c_val) >= 1000 \
+        # Deposit amount is in column C (NẠP), withdrawal in column M (RÚT);
+        # some withdrawals are only written in the note ("Huế rút 4tr7"). We
+        # require the note to say nạp/rút, which also skips the cumulative-total
+        # rows (blank note, big running sum).
+        c_val, m_val = r[2], r[12]
+        if "rut" in b:
+            amt = m_val if isinstance(m_val, (int, float)) and abs(m_val) >= 1000 \
                 else _parse_million_text(note_text)
             if amt:
                 cashflows.append({"date": d, "type": CashFlowType.withdraw,
-                                  "amount": abs(float(amt)),
+                                  "amount": abs(float(amt)), "owner": owner,
                                   "note": str(note_text)[:255]})
         elif "nap" in b and isinstance(c_val, (int, float)) and abs(c_val) >= 1000:
             cashflows.append({"date": d, "type": CashFlowType.deposit,
-                              "amount": float(c_val),
+                              "amount": float(c_val), "owner": owner,
                               "note": str(note_text)[:255]})
 
-        # --- Buy order (columns D/E/F) ---
+        # --- Buy order (columns D/E/F, fee in L) ---
         if _is_symbol(r[3]) and isinstance(r[4], (int, float)) and r[4] > 0 \
                 and isinstance(r[5], (int, float)) and r[5] > 0:
             trades.append({"date": d, "symbol": r[3].strip().upper(),
                            "side": TradeSide.buy, "quantity": int(r[4]),
-                           "price": float(r[5]), "fee": 0})
+                           "price": float(r[5]), "fee": fee, "owner": owner})
 
-        # --- Sell order (columns H/I/J) ---
+        # --- Sell order (columns H/I/J, fee in L) ---
         if _is_symbol(r[7]) and isinstance(r[8], (int, float)) and r[8] > 0 \
                 and isinstance(r[9], (int, float)) and r[9] > 0:
             trades.append({"date": d, "symbol": r[7].strip().upper(),
                            "side": TradeSide.sell, "quantity": int(r[8]),
-                           "price": float(r[9]), "fee": 0})
+                           "price": float(r[9]), "fee": fee, "owner": owner})
 
     return cashflows, trades
 
@@ -368,9 +390,11 @@ def import_workbook(path: Path, fresh: bool) -> None:
             # --- Stock section (nap/rut + mua/ban) for this sheet's month ---
             cfs, trs = extract_stock_rows(rows, year, month)
             for cf in cfs:
-                stock_cf_batch.append(StockCashFlow(user_id=default_uid, **cf))
+                uid = users.get(cf.pop("owner"), default_uid)
+                stock_cf_batch.append(StockCashFlow(user_id=uid, **cf))
             for tr in trs:
-                stock_trade_batch.append(StockTrade(user_id=default_uid, **tr))
+                uid = users.get(tr.pop("owner"), default_uid)
+                stock_trade_batch.append(StockTrade(user_id=uid, **tr))
             # Data starts at row 4 (index 3); rows 1-3 are the header block.
             for raw in rows[3:]:
                 # Pad short rows so indexing is always safe.

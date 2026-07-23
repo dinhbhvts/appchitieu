@@ -31,6 +31,15 @@ def client():
 
     with SessionLocal() as db:
         seed(db)
+        # Grab the first user's id so we can log the test client in.
+        from app.models.user import User
+        first_user_id = db.query(User).order_by(User.id).first().id
+
+    # Protected endpoints now require a login token, so attach one for every
+    # request the test client makes.
+    from app.core.security import create_access_token
+    token = create_access_token(first_user_id)
 
     with TestClient(app) as c:
+        c.headers["Authorization"] = f"Bearer {token}"
         yield c

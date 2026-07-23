@@ -30,12 +30,16 @@ class AssetItemRead(AssetItemBase):
 
 
 class AssetMonth(BaseModel):
-    """All asset lines for one month plus their total (net worth)."""
+    """All asset lines for one month plus their total (net worth) and the
+    change compared with the previous month."""
 
     year: int
     month: int
     total: float
     items: list[AssetItemRead]
+    prev_total: float = 0            # net worth of the previous month
+    change_amount: float = 0         # total - prev_total
+    change_pct: float | None = None  # % change; None if no previous month data
 
 
 class AssetHistoryItem(BaseModel):

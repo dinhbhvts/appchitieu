@@ -1,5 +1,5 @@
 # Thu vien BO SUNG cho ban production (khi dung PostgreSQL tren may chu).
-# Chi cai file nay khi trien khai len Railway/Render, KHONG can khi chay thu.
+# Dung khi trien khai (Koyeb / Hugging Face + Supabase). KHONG can khi chay thu.
 
 -r requirements.txt
 
