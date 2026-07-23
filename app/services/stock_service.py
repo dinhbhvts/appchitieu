@@ -224,8 +224,14 @@ def summary(db: Session, user_id: int | None = None,
         period_deposit = cum_deposit - prev_deposit
         period_withdraw = cum_withdraw - prev_withdraw
 
-    positions = _positions(db, user_id=user_id, end=end)
-    total_realised = sum(p.realised_pl for p in positions)
+    # Profit/loss (realised + unrealised), the way the Excel file computes it:
+    #   lãi/lỗ = giá trị đang giữ + tổng đã rút − tổng đã nạp
+    # This is additive, so the combined view equals husband + wife, and it does
+    # not depend on the (incomplete) buy/sell log.
+    holdings_value = sum(
+        float(h.value) for h in repo.list_holdings(db, user_id=user_id)
+    )
+    total_pl = holdings_value + cum_withdraw - cum_deposit
 
     return StockSummary(
         total_deposit=period_deposit,
@@ -233,8 +239,8 @@ def summary(db: Session, user_id: int | None = None,
         cum_deposit=cum_deposit,
         cum_withdraw=cum_withdraw,
         invested_capital=cum_deposit - cum_withdraw,
-        total_realised_pl=round(total_realised, 0),
-        positions=positions,
+        total_realised_pl=round(total_pl, 0),
+        positions=[],
     )
 
 
