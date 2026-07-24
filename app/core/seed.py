@@ -31,10 +31,12 @@ DEFAULT_CATEGORIES = [
     ("Mua sắm", CategoryKind.expense),
     ("Sức khỏe", CategoryKind.expense),
     ("Gia đình", CategoryKind.expense),
-    ("Học phí", CategoryKind.expense),
+    ("Giáo dục", CategoryKind.expense),
     ("Giải trí", CategoryKind.expense),
     ("Tài chính", CategoryKind.expense),
     ("Quà tặng", CategoryKind.expense),
+    ("Dịch vụ", CategoryKind.expense),
+    ("Sửa chữa", CategoryKind.expense),
     ("Khác", CategoryKind.expense),
 ]
 
