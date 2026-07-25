@@ -20,6 +20,7 @@ from app.api.routes import (
     assets,
     auth,
     categories,
+    notebook_items,
     reports,
     stocks,
     transactions,
@@ -70,6 +71,7 @@ app.include_router(users.router)
 _auth = [Depends(get_current_user)]
 app.include_router(assets.router, dependencies=_auth)
 app.include_router(categories.router, dependencies=_auth)
+app.include_router(notebook_items.router, dependencies=_auth)
 app.include_router(transactions.router, dependencies=_auth)
 app.include_router(stocks.router, dependencies=_auth)
 app.include_router(reports.router, dependencies=_auth)

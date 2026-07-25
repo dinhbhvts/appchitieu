@@ -42,3 +42,18 @@ class TradeSide(str, enum.Enum):
 
     buy = "buy"    # MUA
     sell = "sell"  # BAN
+
+
+class NotebookItemType(str, enum.Enum):
+    """The "Sổ tay" (family notebook) is one flexible table shared by every
+    kind of lookup info, distinguished only by this type. Adding a brand new
+    kind later is a one-line change here, not a new table/API/screen.
+    """
+
+    address = "address"                  # Dia chi & danh ba
+    birthday = "birthday"                # Sinh nhat
+    anniversary = "anniversary"          # Ngay gio (am lich)
+    service = "service"                  # Dich vu dai han (goi cuoc, bao hiem...)
+    maintenance = "maintenance"          # Bao tri - bao duong
+    note = "note"                        # Ghi chu tu do
+    child_milestone = "child_milestone"  # Moc cua con

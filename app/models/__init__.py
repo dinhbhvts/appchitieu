@@ -7,6 +7,7 @@ happens as soon as `app.models` is imported anywhere.
 
 from app.models.asset import AssetSnapshot
 from app.models.category import Category
+from app.models.notebook_item import NotebookItem
 from app.models.stock import (
     StockCashFlow,
     StockHolding,
@@ -19,6 +20,7 @@ from app.models.user import User
 __all__ = [
     "AssetSnapshot",
     "Category",
+    "NotebookItem",
     "StockCashFlow",
     "StockHolding",
     "StockMonthSummary",

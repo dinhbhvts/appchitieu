@@ -288,6 +288,12 @@ def extract_stock_rows(rows: list, year: int, month: int):
     last_day = 1
     for i in range(sub + 1, len(rows)):
         r = list(rows[i]) + [None] * 20
+        # The "ĐANG GIỮ" (currently-held) snapshot sits right below the
+        # buy/sell log and reuses the SAME columns (D=symbol, E=qty,
+        # F=price) that this loop reads for buy orders. Stop here, or every
+        # holding line gets misread as an extra buy trade.
+        if _strip_accents(r[3]) == "dang giu":
+            break
         note_text = r[1]
         b = _strip_accents(note_text)
         if any(k in b for k in _STOCK_SKIP):
