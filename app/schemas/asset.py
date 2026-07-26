@@ -48,3 +48,21 @@ class AssetHistoryItem(BaseModel):
     year: int
     month: int
     total: float
+
+
+class AssetYearlyItem(BaseModel):
+    """Net worth "chốt năm" (year-end closing balance) plus the year-over-year
+    change - for the yearly trend chart in Báo cáo. Always covers the full
+    history (not affected by any date-range filter).
+
+    The closing balance for a year is the total of the LAST month that year
+    which has any asset data (not necessarily December, if December was
+    never filled in) - matching how "prev_total" already works for the
+    month-by-month view.
+    """
+
+    year: int
+    closing_month: int          # which month's total was used as the year-end value
+    total: float                 # net worth at that closing month
+    change_amount: float = 0     # total - previous year's total (0 for the first year)
+    change_pct: float | None = None  # % change; None if no previous year data

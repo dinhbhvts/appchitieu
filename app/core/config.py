@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # convenient (no daily re-login) while still expiring eventually.
     access_token_expire_days: int = 30
 
+    # Key used to REVERSIBLY encrypt sensitive notebook fields (currently:
+    # saved account passwords in the "Sổ tay" / "Tài khoản" utility). This is
+    # different from secret_key (used for one-way login token signing) -
+    # MUST be overridden in production via the ACCOUNT_ENCRYPTION_KEY env
+    # var, and must NOT change afterwards or previously-saved passwords
+    # become unreadable.
+    account_encryption_key: str = "dev-only-change-me-in-production-acct-key"
+
     # Tell pydantic to read a ".env" file sitting next to where we run the app.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

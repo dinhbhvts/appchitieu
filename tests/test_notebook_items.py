@@ -92,3 +92,58 @@ def test_update_missing_item_returns_404(client):
 def test_delete_missing_item_returns_404(client):
     r = client.delete("/notebook-items/999999")
     assert r.status_code == 404
+
+
+def test_upcoming_includes_solar_birthday_within_window(client):
+    import datetime
+    today = datetime.date.today()
+    soon = today + datetime.timedelta(days=10)
+    client.post("/notebook-items", json={
+        "type": "birthday", "title": "Sinh nhật con",
+        # Store a date1 whose (month, day) match a day 10 days from now, so
+        # the yearly recurrence lands inside the 30-day window regardless of
+        # what year the test happens to run in.
+        "date1": f"2000-{soon.month:02d}-{soon.day:02d}",
+    })
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert any(u["item"]["title"] == "Sinh nhật con" for u in upcoming)
+    match = next(u for u in upcoming if u["item"]["title"] == "Sinh nhật con")
+    assert 0 <= match["days_until"] <= 30
+
+
+def test_upcoming_excludes_items_outside_window(client):
+    import datetime
+    today = datetime.date.today()
+    far = today + datetime.timedelta(days=200)
+    client.post("/notebook-items", json={
+        "type": "birthday", "title": "Sinh nhật xa",
+        "date1": f"2000-{far.month:02d}-{far.day:02d}",
+    })
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert all(u["item"]["title"] != "Sinh nhật xa" for u in upcoming)
+
+
+def test_upcoming_includes_service_due_date(client):
+    import datetime
+    today = datetime.date.today()
+    due = today + datetime.timedelta(days=5)
+    client.post("/notebook-items", json={
+        "type": "service", "title": "Internet VNPT",
+        "date2": due.isoformat(),
+    })
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert any(u["item"]["title"] == "Internet VNPT" and u["occurs_on"] == due.isoformat()
+               for u in upcoming)
+
+
+def test_upcoming_lunar_anniversary_converts_to_solar(client):
+    # Just check it doesn't error and returns a solar date - the actual
+    # lunar math is covered by test_lunar.py.
+    client.post("/notebook-items", json={
+        "type": "anniversary", "title": "Giỗ ông",
+        "date1": "2000-01-01", "date1_is_lunar": True,
+    })
+    r = client.get("/notebook-items/upcoming", params={"days": 400})
+    assert r.status_code == 200
+    match = next(u for u in r.json() if u["item"]["title"] == "Giỗ ông")
+    assert match["occurs_on"]

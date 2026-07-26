@@ -33,11 +33,18 @@ class Transaction(Base):
 
     # The calendar date of the transaction (no time-of-day needed). All monthly
     # and yearly statistics are grouped by this field.
-    date: Mapped[date_type] = mapped_column(Date, nullable=False, index=True)
+    date: Mapped[date_type] = mapped_column(
+        Date, nullable=False, index=True,
+        comment="Ngày phát sinh giao dịch. Tháng/năm cho báo cáo được tính "
+                "từ cột này, KHÔNG có bảng riêng theo tháng.",
+    )
 
     # income or expense. Stored as text ("income"/"expense") in the database.
     type: Mapped[TransactionType] = mapped_column(
-        Enum(TransactionType), nullable=False
+        Enum(TransactionType), nullable=False,
+        comment="income = thu (tăng quỹ), expense = chi (giảm quỹ), "
+                "transfer = chuyển nội bộ chồng->vợ (KHÔNG đổi tổng quỹ, chỉ "
+                "dịch chuyển giữa 2 người trong báo cáo riêng).",
     )
 
     # Amount of money. Numeric(18, 0) stores whole VND with no rounding errors

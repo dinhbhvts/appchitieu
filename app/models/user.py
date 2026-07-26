@@ -26,7 +26,11 @@ class User(Base):
     # password until one is set (via scripts/set_password.py). Never store the
     # raw password - only the hash produced by app.core.security.
     password_hash: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
+        String(255), nullable=True,
+        comment="Hash MỘT CHIỀU (PBKDF2, app.core.security) của mật khẩu "
+                "đăng nhập app - không thể giải mã ngược, chỉ dùng để so "
+                "khớp lúc đăng nhập. KHÁC với NotebookItem.password_encrypted "
+                "(mã hóa 2 chiều, dùng cho mật khẩu tài khoản ngoài đã lưu).",
     )
 
     # When the row was created; the database fills this in automatically.

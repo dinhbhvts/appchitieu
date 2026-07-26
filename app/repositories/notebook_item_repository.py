@@ -3,7 +3,6 @@
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models.enums import NotebookItemType
 from app.models.notebook_item import NotebookItem
 
 
@@ -21,14 +20,15 @@ def get(db: Session, item_id: int) -> NotebookItem | None:
 
 def list_all(
     db: Session,
-    type: NotebookItemType | None = None,
+    type: str | None = None,
     q: str | None = None,
 ) -> list[NotebookItem]:
     """List items, optionally filtered by type and/or a free-text search.
 
     The search is a simple case-insensitive "contains" match across every
-    text field (title, relation, phone, address, tags, note) - approximate on
-    purpose, per the "tìm tương đối" requirement (no need for exact spelling).
+    non-sensitive text field (title, relation, phone, address, system,
+    username, info, tags, note) - approximate on purpose, per the "tìm
+    tương đối" requirement. The encrypted password is never searched.
     """
     stmt = select(NotebookItem)
     if type is not None:
@@ -41,6 +41,9 @@ def list_all(
                 NotebookItem.relation.ilike(like),
                 NotebookItem.phone.ilike(like),
                 NotebookItem.address.ilike(like),
+                NotebookItem.system.ilike(like),
+                NotebookItem.username.ilike(like),
+                NotebookItem.info.ilike(like),
                 NotebookItem.tags.ilike(like),
                 NotebookItem.note.ilike(like),
             )

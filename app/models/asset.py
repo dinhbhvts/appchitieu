@@ -22,7 +22,9 @@ class AssetSnapshot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    # The month this value belongs to.
+    # The month this value belongs to. Stored as plain (year, month) integers
+    # instead of a date, because a snapshot belongs to a WHOLE MONTH, not a
+    # specific day - matches how the old "CHỐT THÁNG" block worked.
     year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     month: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 

@@ -15,6 +15,7 @@ from app.schemas.asset import (
     AssetItemCreate,
     AssetItemUpdate,
     AssetMonth,
+    AssetYearlyItem,
 )
 
 
@@ -83,6 +84,40 @@ def history(db: Session) -> list[AssetHistoryItem]:
         AssetHistoryItem(year=y, month=m, total=t)
         for (y, m), t in sorted(totals.items())
     ]
+
+
+def yearly_history(db: Session) -> list[AssetYearlyItem]:
+    """Net worth "chốt năm" per year plus the year-over-year change.
+
+    Always covers the full history (every year that has any asset data,
+    typically starting 2022) - NOT affected by any date-range filter the
+    Báo cáo screen might have active, since asset trends are a long-term view.
+
+    For each year, the "chốt năm" value is the total of the LAST month that
+    year which has any data (not necessarily December).
+    """
+    monthly = history(db)  # sorted oldest -> newest
+    latest_per_year: dict[int, AssetHistoryItem] = {}
+    for item in monthly:
+        # monthly is sorted ascending, so the last write for a year is its
+        # latest month - exactly the "chốt năm" value we want.
+        latest_per_year[item.year] = item
+
+    result: list[AssetYearlyItem] = []
+    prev_total: float | None = None
+    for year in sorted(latest_per_year.keys()):
+        item = latest_per_year[year]
+        change_amount = item.total - prev_total if prev_total is not None else 0.0
+        change_pct = (
+            round(change_amount / prev_total * 100, 1)
+            if prev_total else None
+        )
+        result.append(AssetYearlyItem(
+            year=year, closing_month=item.month, total=item.total,
+            change_amount=change_amount, change_pct=change_pct,
+        ))
+        prev_total = item.total
+    return result
 
 
 def copy_from_previous(

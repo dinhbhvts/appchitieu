@@ -12,6 +12,7 @@ from app.schemas.asset import (
     AssetItemRead,
     AssetItemUpdate,
     AssetMonth,
+    AssetYearlyItem,
 )
 from app.schemas.common import Message
 from app.services import asset_service as service
@@ -29,6 +30,16 @@ def get_month(year: int, month: int, db: Session = Depends(get_db)):
 def history(db: Session = Depends(get_db)):
     """Total net worth per month (for the trend chart)."""
     return service.history(db)
+
+
+@router.get("/yearly-history", response_model=list[AssetYearlyItem])
+def yearly_history(db: Session = Depends(get_db)):
+    """Net worth "chốt năm" per year plus year-over-year change.
+
+    Always covers the full history, regardless of any date filter elsewhere
+    in the app - meant for the long-term yearly trend chart in Báo cáo.
+    """
+    return service.yearly_history(db)
 
 
 @router.post("", response_model=AssetItemRead, status_code=201)

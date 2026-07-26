@@ -30,12 +30,19 @@ class Category(Base):
 
     # Whether this category is for income, expense, or usable for both.
     kind: Mapped[CategoryKind] = mapped_column(
-        Enum(CategoryKind), default=CategoryKind.both, nullable=False
+        Enum(CategoryKind), default=CategoryKind.both, nullable=False,
+        comment="income = chỉ dùng cho giao dịch Thu, expense = chỉ dùng cho "
+                "Chi, both = dùng được cho cả hai. Không đổi được sau khi đã "
+                "có giao dịch dùng danh mục này (tránh sai lệch báo cáo cũ).",
     )
 
     # True for the built-in suggested categories we seed on first run.
     # The user can still add their own (is_default = False).
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, default=False,
+        comment="True = danh mục có sẵn (seed lúc khởi tạo). False = do "
+                "người dùng tự thêm. Cả hai loại đều KHÔNG xóa được.",
+    )
 
     # Suggested emoji shown next to the name in pickers (e.g. "🍜"). Optional -
     # the UI falls back to a generic icon when this is blank.
@@ -43,7 +50,12 @@ class Category(Base):
 
     # False = hidden from the entry-screen picker (the user's way of
     # "removing" a category without deleting it and breaking old reports).
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False,
+        comment="False = ẩn khỏi màn chọn danh mục khi nhập giao dịch mới, "
+                "nhưng KHÔNG xóa - giao dịch cũ dùng danh mục này vẫn hiển "
+                "thị đúng trong lịch sử/báo cáo.",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()

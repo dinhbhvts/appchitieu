@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.category import Category
 from app.models.enums import CategoryKind
+from app.models.notebook_type import NotebookType
 from app.models.user import User
 
 # The two people who use the app. Names are display strings (shown in the UI),
@@ -40,6 +41,20 @@ DEFAULT_CATEGORIES = [
     ("Khác", CategoryKind.expense),
 ]
 
+# Built-in "Sổ tay" (family notebook) types. (key, name, icon)
+# Order matters: this is the order shown in the type picker. The user can
+# add their own custom types afterwards from Cấu hình > Danh mục tiện ích.
+DEFAULT_NOTEBOOK_TYPES = [
+    ("address", "Địa chỉ", "📍"),
+    ("birthday", "Sinh nhật", "🎂"),
+    ("anniversary", "Ngày giỗ", "🕯️"),
+    ("service", "Dịch vụ", "🌐"),
+    ("maintenance", "Bảo trì", "🔧"),
+    ("account", "Tài khoản", "🔑"),
+    ("note", "Ghi chú", "📝"),
+    ("child_milestone", "Mốc của con", "👶"),
+]
+
 
 def seed(db: Session) -> None:
     """Insert default rows only if the relevant table is currently empty."""
@@ -50,5 +65,9 @@ def seed(db: Session) -> None:
     if db.scalar(select(Category)) is None:
         for name, kind in DEFAULT_CATEGORIES:
             db.add(Category(name=name, kind=kind, is_default=True))
+
+    if db.scalar(select(NotebookType)) is None:
+        for key, name, icon in DEFAULT_NOTEBOOK_TYPES:
+            db.add(NotebookType(key=key, name=name, icon=icon, is_default=True))
 
     db.commit()

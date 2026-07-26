@@ -44,16 +44,8 @@ class TradeSide(str, enum.Enum):
     sell = "sell"  # BAN
 
 
-class NotebookItemType(str, enum.Enum):
-    """The "Sổ tay" (family notebook) is one flexible table shared by every
-    kind of lookup info, distinguished only by this type. Adding a brand new
-    kind later is a one-line change here, not a new table/API/screen.
-    """
-
-    address = "address"                  # Dia chi & danh ba
-    birthday = "birthday"                # Sinh nhat
-    anniversary = "anniversary"          # Ngay gio (am lich)
-    service = "service"                  # Dich vu dai han (goi cuoc, bao hiem...)
-    maintenance = "maintenance"          # Bao tri - bao duong
-    note = "note"                        # Ghi chu tu do
-    child_milestone = "child_milestone"  # Moc cua con
+# NOTE: NotebookItem's "type" used to be a fixed Python enum here. It is now
+# a free string validated against the notebook_types table instead (see
+# app/models/notebook_type.py), so the user can add their own custom types
+# from Cấu hình > Danh mục tiện ích without a code change. The original 7
+# built-in types plus "account" are seeded there (app/core/seed.py).

@@ -36,7 +36,9 @@ class StockCashFlow(Base):
 
     # deposit or withdraw.
     type: Mapped[CashFlowType] = mapped_column(
-        Enum(CashFlowType), nullable=False
+        Enum(CashFlowType), nullable=False,
+        comment="deposit = nạp tiền vào tài khoản chứng khoán, "
+                "withdraw = rút tiền ra. Không liên quan Transaction.type.",
     )
     amount: Mapped[float] = mapped_column(Numeric(18, 0), nullable=False)
     user_id: Mapped[int] = mapped_column(
@@ -64,7 +66,12 @@ class StockTrade(Base):
     symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
 
     # buy or sell.
-    side: Mapped[TradeSide] = mapped_column(Enum(TradeSide), nullable=False)
+    side: Mapped[TradeSide] = mapped_column(
+        Enum(TradeSide), nullable=False,
+        comment="buy = lệnh mua, sell = lệnh bán. Vị thế đang nắm giữ theo "
+                "mã (SymbolPosition) được TÍNH từ các dòng buy/sell này, "
+                "không lưu trực tiếp.",
+    )
 
     # Number of shares in this order.
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -107,9 +114,18 @@ class StockHolding(Base):
     # Ticker or free label, e.g. "NKG".
     symbol: Mapped[str] = mapped_column(String(50), nullable=False)
     # Number of shares held (typed by the user).
-    quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    quantity: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False,
+        comment="Số lượng cổ phiếu đang nắm giữ - người dùng TỰ NHẬP TAY, "
+                "không tự tính từ StockTrade (mã này có thể mua từ trước "
+                "khi dùng app, hoặc muốn nhập giá trị chốt tay).",
+    )
     # Current value in VND (money), typed by the user.
-    value: Mapped[float] = mapped_column(Numeric(18, 0), nullable=False)
+    value: Mapped[float] = mapped_column(
+        Numeric(18, 0), nullable=False,
+        comment="Giá trị hiện tại (VNĐ) của phần đang giữ - người dùng tự "
+                "nhập tay theo giá thị trường, KHÔNG tự động cập nhật.",
+    )
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -139,8 +155,17 @@ class StockMonthSummary(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True
     )
-    cum_deposit: Mapped[float] = mapped_column(Numeric(18, 0), default=0)
-    cum_withdraw: Mapped[float] = mapped_column(Numeric(18, 0), default=0)
+    cum_deposit: Mapped[float] = mapped_column(
+        Numeric(18, 0), default=0,
+        comment="Tổng đã nạp LŨY KẾ tính đến hết tháng này (không phải số "
+                "nạp riêng trong tháng) - lấy từ dữ liệu Excel gốc hoặc nối "
+                "tiếp từ snapshot gần nhất.",
+    )
+    cum_withdraw: Mapped[float] = mapped_column(
+        Numeric(18, 0), default=0,
+        comment="Tổng đã rút LŨY KẾ tính đến hết tháng này (không phải số "
+                "rút riêng trong tháng).",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

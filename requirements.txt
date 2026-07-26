@@ -19,6 +19,12 @@ pytest>=8.3
 PyJWT>=2.9
 httpx>=0.28
 
+# Reversible encryption for saved account passwords (So tay > Tai khoan)
+cryptography>=43.0
+
+# Lich am duong (quy doi ngay gio - dung cho sinh nhat/ngay gio am lich)
+lunarcalendar>=0.0.9
+
 # GHI CHU: PostgreSQL (dung khi trien khai len may chu) can them driver.
 # KHONG cai o buoc chay thu. Khi trien khai production moi chay:
 #     python -m pip install -r requirements-prod.txt
