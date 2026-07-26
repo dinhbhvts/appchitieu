@@ -92,6 +92,10 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
     Covers:
       - birthday / anniversary: yearly recurrence via date1 (converted from
         lunar to solar first if date1_is_lunar).
+      - personal_info: yearly recurrence via date1 (Ngày sinh), same as
+        type=birthday, but only when remind_birthday is True (default) -
+        the user unticks it in the UI if that person's birthday is already
+        tracked as a separate type=birthday row, to avoid a duplicate.
       - service / maintenance: date2 ("ngày hết hạn / đến hạn kế tiếp") if
         it falls in the window - this is a stored one-off due date, not
         auto-recomputed from recurrence_days (keeps the logic simple; the
@@ -99,15 +103,19 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
       - task ("Tạo nhắc việc"): date2 ("Ngày cần hoàn thành") if it falls in
         the window - same one-off due-date handling as service/maintenance.
 
-    Other types (address, account, personal_info, note, child_milestone,
-    custom types) have no natural "upcoming" concept and are not included.
+    Other types (address, account, note, child_milestone, custom types) have
+    no natural "upcoming" concept and are not included.
     """
     today = today or date_type.today()
     end = today + timedelta(days=days)
     reminders: list[UpcomingReminder] = []
 
     for item in repo.list_all(db):
-        if item.type in _YEARLY_RECURRING_TYPES and item.date1:
+        is_birthday_reminder = (
+            item.type in _YEARLY_RECURRING_TYPES
+            or (item.type == "personal_info" and item.remind_birthday)
+        )
+        if is_birthday_reminder and item.date1:
             if item.date1_is_lunar:
                 occurs_on = next_solar_occurrence(
                     item.date1.month, item.date1.day, False, today

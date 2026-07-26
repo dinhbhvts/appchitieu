@@ -4,12 +4,17 @@ Run locally with:  uvicorn app.main:app --reload
 Interactive docs:  http://127.0.0.1:8000/docs
 """
 
+import logging
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
+
+logger = logging.getLogger("vibeapp")
 from app.core.database import Base, SessionLocal, engine
 from app.core.seed import seed
 
@@ -57,6 +62,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all for any exception a route doesn't handle itself.
+
+    Without this, an unhandled exception (e.g. a DB error, a bug in new
+    code) crashes past FastAPI's normal error handling before the CORS
+    middleware gets a chance to add its headers to the response - the
+    browser then reports a generic, misleading "Failed to fetch" instead of
+    the real error, because it treats the header-less response as a network
+    failure rather than an HTTP error it can read.
+
+    Registering a handler here (as opposed to letting Starlette's default
+    ServerErrorMiddleware handle it) keeps the response INSIDE the
+    middleware stack, so CORS headers are still attached and the frontend
+    sees a normal JSON error it can display - instead of "Failed to fetch".
+
+    The real traceback is logged server-side (visible in Render's logs) so
+    the actual bug can be diagnosed; the client only gets a generic message
+    plus the exception's short description (not a full traceback, to avoid
+    leaking internals).
+    """
+    logger.error("Unhandled exception on %s %s:\n%s",
+                 request.method, request.url.path, traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Đã có lỗi xảy ra ở máy chủ. Vui lòng thử lại sau ít "
+                       f"phút. Chi tiết: {exc.__class__.__name__}: {exc}"
+        },
+    )
 
 
 @app.get("/", tags=["health"])

@@ -30,6 +30,9 @@ class NotebookItemBase(BaseModel):
     birth_cert_no: str | None = None
     health_insurance_no: str | None = None
     hometown: str | None = None
+    # Only meaningful for type=personal_info - see the column's comment in
+    # app/models/notebook_item.py. Defaults to True (checked in the UI).
+    remind_birthday: bool = True
     # custom-type field ("Thông tin"); also used as "Công việc" for type=task.
     info: str | None = None
     tags: str | None = None
@@ -63,6 +66,7 @@ class NotebookItemUpdate(BaseModel):
     birth_cert_no: str | None = None
     health_insurance_no: str | None = None
     hometown: str | None = None
+    remind_birthday: bool | None = None
     info: str | None = None
     tags: str | None = None
     note: str | None = None

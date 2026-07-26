@@ -180,6 +180,39 @@ def test_task_type_and_upcoming_due_date(client):
     assert match["occurs_on"] == due.isoformat()
 
 
+def test_personal_info_birthday_reminder_default_on(client):
+    """remind_birthday defaults to True - Ngày sinh của Thông tin cá nhân tự
+    động lên danh sách nhắc nhở, giống type=birthday."""
+    import datetime
+    today = datetime.date.today()
+    soon = today + datetime.timedelta(days=7)
+    r = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông",
+        "date1": f"2018-{soon.month:02d}-{soon.day:02d}",
+    })
+    assert r.json()["remind_birthday"] is True
+
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert any(u["item"]["title"] == "Bông" for u in upcoming)
+
+
+def test_personal_info_birthday_reminder_can_be_turned_off(client):
+    """Untick remind_birthday (vd: đã có bản ghi type=birthday riêng cho
+    người này) -> KHÔNG xuất hiện trong danh sách nhắc nhở."""
+    import datetime
+    today = datetime.date.today()
+    soon = today + datetime.timedelta(days=7)
+    r = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông 2",
+        "date1": f"2018-{soon.month:02d}-{soon.day:02d}",
+        "remind_birthday": False,
+    })
+    assert r.json()["remind_birthday"] is False
+
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert all(u["item"]["title"] != "Bông 2" for u in upcoming)
+
+
 def test_upcoming_lunar_anniversary_converts_to_solar(client):
     # Just check it doesn't error and returns a solar date - the actual
     # lunar math is covered by test_lunar.py.

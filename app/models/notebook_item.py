@@ -20,11 +20,12 @@ Which columns a given `type` actually uses (for the ADD/EDIT form):
   - child_milestone:    title, date1
   - account:            title, system, relation (as "Người dùng"), username,
                          password_encrypted
-  - personal_info:      title (Tên thường gọi), full_name, date1 (Ngày sinh),
-                         phone, id_number, id_issued_date, id_issued_place,
-                         date2 (Ngày hết hạn CCCD), birth_cert_no,
-                         health_insurance_no, address (Địa chỉ thường trú),
-                         hometown - plus file attachments (NotebookAttachment)
+  - personal_info:      title (Tên thường gọi), full_name, date1 (Ngày sinh)
+                         + remind_birthday, phone, id_number, id_issued_date,
+                         id_issued_place, date2 (Ngày hết hạn CCCD),
+                         birth_cert_no, health_insurance_no,
+                         address (Địa chỉ thường trú), hometown - plus file
+                         attachments (NotebookAttachment)
   - task:                title, info (Công việc), date2 (Ngày cần hoàn
                          thành - drives the Tổng quan reminder)
   - note / any custom
@@ -122,6 +123,19 @@ class NotebookItem(Base):
     # "Quê quán" (ancestral hometown - distinct from `address`, which is used
     # here as "Địa chỉ thường trú").
     hometown: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # Whether date1 (Ngày sinh) for this personal_info row should also show
+    # up in the Dashboard's upcoming-reminders list, the same way a
+    # dedicated type=birthday row does. Defaults to True (checked); the user
+    # unticks it if they already keep this person's birthday as a separate
+    # type=birthday entry, to avoid a duplicate reminder. Ignored for every
+    # other type - only meaningful when type=personal_info.
+    remind_birthday: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False,
+        comment="Chỉ áp dụng cho type=personal_info: True = Ngày sinh của "
+                "mục này cũng hiện trong danh sách nhắc nhở ở Tổng quan, "
+                "giống type=birthday. Mặc định True - bỏ tích nếu đã có "
+                "bản ghi 'Sinh nhật' riêng cho người này để tránh nhắc trùng.",
+    )
 
     # -- custom (non-default) type fields --
     # "Thông tin" - generic free-text content field for custom notebook

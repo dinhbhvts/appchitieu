@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.drive import DriveNotConfigured
+from app.core.drive import DriveError, DriveNotConfigured
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.common import Message
@@ -37,6 +37,8 @@ async def upload_attachment(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except DriveNotConfigured as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except DriveError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 

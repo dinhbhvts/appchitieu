@@ -35,6 +35,18 @@ class DriveNotConfigured(Exception):
     """Attachment upload/download attempted before Google Drive was set up."""
 
 
+class DriveError(Exception):
+    """Google rejected the request (bad credentials, folder not shared with
+    the service account, quota exceeded, malformed JSON key, ...).
+
+    Deliberately a distinct, caught exception - NOT left to propagate as a
+    raw googleapiclient/google.auth exception. An uncaught exception here
+    would 500 without CORS headers (see main.py's unhandled_exception_handler
+    docstring), which the browser reports as an opaque "Failed to fetch"
+    instead of a message the user (or we, debugging with them) can act on.
+    """
+
+
 def is_configured() -> bool:
     settings = get_settings()
     return bool(settings.google_service_account_json and settings.google_drive_folder_id)
@@ -49,10 +61,21 @@ def _credentials():
         )
     from google.oauth2 import service_account
 
-    info = json.loads(settings.google_service_account_json)
-    return service_account.Credentials.from_service_account_info(
-        info, scopes=["https://www.googleapis.com/auth/drive"]
-    )
+    try:
+        info = json.loads(settings.google_service_account_json)
+    except json.JSONDecodeError as e:
+        raise DriveError(
+            "GOOGLE_SERVICE_ACCOUNT_JSON không phải JSON hợp lệ - kiểm tra "
+            "lại đã dán ĐÚNG và ĐỦ nội dung file key (mục 3C, TRIEN_KHAI.md)."
+        ) from e
+    try:
+        return service_account.Credentials.from_service_account_info(
+            info, scopes=["https://www.googleapis.com/auth/drive"]
+        )
+    except Exception as e:
+        raise DriveError(
+            f"Không tạo được thông tin xác thực Google Drive: {e}"
+        ) from e
 
 
 # Cached per-process - building the API client is not free, and the service
@@ -61,13 +84,23 @@ def _credentials():
 def _service():
     from googleapiclient.discovery import build
 
-    return build("drive", "v3", credentials=_credentials(), cache_discovery=False)
+    try:
+        return build("drive", "v3", credentials=_credentials(), cache_discovery=False)
+    except (DriveNotConfigured, DriveError):
+        raise
+    except Exception as e:
+        raise DriveError(f"Không kết nối được tới Google Drive: {e}") from e
 
 
 def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
     """Upload one file into the configured shared folder.
 
     Returns Drive's file metadata: {"id", "name", "webViewLink"}.
+
+    Raises DriveNotConfigured if the env vars aren't set, or DriveError for
+    any failure talking to Google (bad credentials, folder not shared with
+    the service account, quota, network...) - never lets a raw
+    googleapiclient/google.auth exception escape uncaught.
     """
     settings = get_settings()
     if not settings.google_drive_folder_id:
@@ -79,12 +112,27 @@ def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
 
     media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
     metadata = {"name": filename, "parents": [settings.google_drive_folder_id]}
-    return (
-        _service()
-        .files()
-        .create(body=metadata, media_body=media, fields="id, name, webViewLink")
-        .execute()
-    )
+    try:
+        return (
+            _service()
+            .files()
+            .create(body=metadata, media_body=media, fields="id, name, webViewLink")
+            .execute()
+        )
+    except (DriveNotConfigured, DriveError):
+        raise
+    except Exception as e:
+        # Most common real-world cause: the shared folder ID is wrong, or the
+        # folder was never actually shared with the service account's email
+        # (mục 3C bước 4, TRIEN_KHAI.md) - Google then rejects the upload
+        # with a permission/not-found error.
+        raise DriveError(
+            "Tải file lên Google Drive thất bại. Kiểm tra lại: (1) đã share "
+            "thư mục Drive với đúng email service account (dạng "
+            "...@...iam.gserviceaccount.com) quyền Editor, (2) "
+            "GOOGLE_DRIVE_FOLDER_ID đúng với thư mục đó. "
+            f"Chi tiết lỗi: {e}"
+        ) from e
 
 
 def delete_file(drive_file_id: str) -> None:
