@@ -26,3 +26,11 @@ class UserRead(UserBase):
 
     # from_attributes lets Pydantic build this straight from an ORM object.
     model_config = ConfigDict(from_attributes=True)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Request to change a user's password."""
+
+    old_password: str
+    new_password: str
+    confirm_password: str
