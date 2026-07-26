@@ -19,8 +19,9 @@ from app.schemas.notebook_item import (
 # for the living, anniversary for the deceased (ngày giỗ).
 _YEARLY_RECURRING_TYPES = ("birthday", "anniversary")
 # Built-in type keys whose date2 ("ngày hết hạn / đến hạn kế tiếp") is a
-# one-off upcoming due date, not a yearly recurrence.
-_DUE_DATE_TYPES = ("service", "maintenance")
+# one-off upcoming due date, not a yearly recurrence. "task" reuses date2 as
+# "Ngày cần hoàn thành" (Tạo nhắc việc) - same one-off due-date semantics.
+_DUE_DATE_TYPES = ("service", "maintenance", "task")
 
 
 def _prepare_data(db: Session, data: dict) -> dict:
@@ -95,9 +96,11 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
         it falls in the window - this is a stored one-off due date, not
         auto-recomputed from recurrence_days (keeps the logic simple; the
         user updates date2 by hand after renewing, same as before).
+      - task ("Tạo nhắc việc"): date2 ("Ngày cần hoàn thành") if it falls in
+        the window - same one-off due-date handling as service/maintenance.
 
-    Other types (address, account, note, child_milestone, custom types)
-    have no natural "upcoming" concept and are not included.
+    Other types (address, account, personal_info, note, child_milestone,
+    custom types) have no natural "upcoming" concept and are not included.
     """
     today = today or date_type.today()
     end = today + timedelta(days=days)

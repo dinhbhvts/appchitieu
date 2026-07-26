@@ -5,16 +5,39 @@ Every income/expense row lives in this single table. Month and year are derived
 from the "date" column at query time. This removes the manual "create a new
 sheet each month and carry the balance over" work the Excel workflow required -
 the running balance is computed automatically instead.
+
+Soft delete (app-wide convention): "Xóa" from any UI in this app never removes
+a row. It only sets is_deleted=True + deleted_at, and every list/summary query
+filters is_deleted=False. Reasoning: this is financial data for two people who
+may want to double-check "did I really mean to delete that?" months later, and
+an accidental hard delete is unrecoverable while a soft delete costs nothing
+(rows are small, and even decades of data for 2 people stays tiny - see the
+index note below). The same is_deleted/deleted_at pair is used identically on
+Transaction, AssetSnapshot, NotebookItem, NotebookAttachment, StockCashFlow,
+StockTrade, StockHolding, and StockDividend.
+
+Indexing for multi-year data (no table partitioning - see note): a composite
+index on (user_id, date) supports the common "this person, this date range"
+report query; the existing single-column index on `date` still covers the
+combined (both people) view. Table PARTITIONING (e.g. by year) was considered
+but is deliberately NOT used: at 2 users x maybe a few thousand rows/year, the
+entire history after 30+ years is still only in the tens of thousands of rows
+- far below where Postgres needs partitioning to stay fast, and partitioning
+would add real operational complexity (partition maintenance, constraint
+exclusion, migration risk) for a personal app - premature optimization per
+the style guide ("Không tối ưu sớm những chức năng chưa cần thiết").
 """
 
 from datetime import date as date_type
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -28,6 +51,9 @@ from app.models.enums import TransactionType
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    __table_args__ = (
+        Index("ix_transactions_user_date", "user_id", "date"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
@@ -61,7 +87,7 @@ class Transaction(Base):
 
     # Which category this belongs to (nullable so a quick entry can skip it).
     category_id: Mapped[int | None] = mapped_column(
-        ForeignKey("categories.id"), nullable=True
+        ForeignKey("categories.id"), nullable=True, index=True
     )
 
     # Which of the two users entered this row. Replaces the old H/D marker.
@@ -80,6 +106,12 @@ class Transaction(Base):
     updated_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Xóa mềm: True = người dùng đã xóa từ UI. Hàng vẫn còn trong "
+                "DB, chỉ bị ẩn khỏi mọi danh sách và tổng hợp.",
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Python-side links for convenient access (transaction.user, .category).
     # foreign_keys is required because the table now has two FKs to users

@@ -20,6 +20,13 @@ Which columns a given `type` actually uses (for the ADD/EDIT form):
   - child_milestone:    title, date1
   - account:            title, system, relation (as "Người dùng"), username,
                          password_encrypted
+  - personal_info:      title (Tên thường gọi), full_name, date1 (Ngày sinh),
+                         phone, id_number, id_issued_date, id_issued_place,
+                         date2 (Ngày hết hạn CCCD), birth_cert_no,
+                         health_insurance_no, address (Địa chỉ thường trú),
+                         hometown - plus file attachments (NotebookAttachment)
+  - task:                title, info (Công việc), date2 (Ngày cần hoàn
+                         thành - drives the Tổng quan reminder)
   - note / any custom
     type the user adds:  title, tags, info, note
 This mapping is a UI concern (which fields to show), not enforced here.
@@ -100,9 +107,26 @@ class NotebookItem(Base):
                 "giờ trả nguyên giá trị cột này qua API, luôn giải mã trước.",
     )
 
+    # -- type=personal_info fields (Thông tin cá nhân: CCCD, BHYT, ...) --
+    # "Họ tên" (legal full name) - distinct from `title` ("Tên thường gọi").
+    full_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # "Số CCCD" (citizen ID number).
+    id_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    id_issued_date: Mapped[date_type | None] = mapped_column(Date, nullable=True)
+    # "Nơi cấp" CCCD.
+    id_issued_place: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # "Số giấy khai sinh".
+    birth_cert_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # "Số thẻ BHYT" (health insurance card number).
+    health_insurance_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # "Quê quán" (ancestral hometown - distinct from `address`, which is used
+    # here as "Địa chỉ thường trú").
+    hometown: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
     # -- custom (non-default) type fields --
     # "Thông tin" - generic free-text content field for custom notebook
-    # types (distinct from `note`, which is for supplementary remarks).
+    # types (distinct from `note`, which is for supplementary remarks). Also
+    # reused as "Công việc" for type=task.
     info: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Simple free-text tags, space or comma separated (e.g. "#xe #gia_dinh").
@@ -122,6 +146,16 @@ class NotebookItem(Base):
     updated_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+
+    # -- soft delete (see app-wide convention in app/models/soft_delete.md
+    # docstring below / the migration comment) --
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Xóa mềm: True = người dùng đã xóa từ UI. Hàng vẫn còn "
+                "trong DB (không mất dữ liệu), chỉ bị ẩn khỏi mọi danh sách "
+                "và tổng hợp. Không có chức năng khôi phục qua UI hiện tại.",
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     @property
     def password(self) -> str | None:

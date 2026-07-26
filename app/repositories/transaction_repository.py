@@ -6,6 +6,7 @@ which keeps business logic free of database details and easy to test.
 """
 
 from datetime import date as date_type
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -36,9 +37,10 @@ def list_between(
     """Return transactions in a date range, optionally for one user.
 
     Results are ordered oldest-first so the caller can walk through them and
-    accumulate a running balance. All filters are optional.
+    accumulate a running balance. All filters are optional. Soft-deleted rows
+    are always excluded.
     """
-    stmt = select(Transaction)
+    stmt = select(Transaction).where(Transaction.is_deleted.is_(False))
     if start is not None:
         stmt = stmt.where(Transaction.date >= start)
     if end is not None:
@@ -59,6 +61,8 @@ def update(db: Session, row: Transaction, changes: dict) -> Transaction:
 
 
 def delete(db: Session, row: Transaction) -> None:
-    """Remove a transaction row."""
-    db.delete(row)
+    """Soft-delete: mark the row hidden instead of removing it (see the
+    app-wide soft-delete note in app/models/transaction.py)."""
+    row.is_deleted = True
+    row.deleted_at = datetime.utcnow()
     db.commit()

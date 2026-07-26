@@ -13,6 +13,9 @@ from app.schemas.stock import (
     CashFlowCreate,
     CashFlowRead,
     CashFlowUpdate,
+    DividendCreate,
+    DividendRead,
+    DividendUpdate,
     HoldingCreate,
     HoldingRead,
     HoldingUpdate,
@@ -92,6 +95,39 @@ def delete_trade(tid: int, db: Session = Depends(get_db)):
     if not service.delete_trade(db, tid):
         raise HTTPException(status_code=404, detail="Không tìm thấy lệnh")
     return Message(detail="Đã xóa lệnh")
+
+
+# --- Dividends (cổ tức) ---------------------------------------------------
+
+@router.post("/dividends", response_model=DividendRead, status_code=201)
+def add_dividend(payload: DividendCreate, db: Session = Depends(get_db),
+                  current: User = Depends(get_current_user)):
+    """Record a dividend payment - basic fields same shape as a trade."""
+    return service.create_dividend(db, payload, actor_id=current.id)
+
+
+@router.get("/dividends", response_model=list[DividendRead])
+def list_dividends(user_id: int | None = None, db: Session = Depends(get_db)):
+    """List dividends received, optionally for one person."""
+    return service.list_dividends(db, user_id=user_id)
+
+
+@router.put("/dividends/{did}", response_model=DividendRead)
+def update_dividend(did: int, payload: DividendUpdate, db: Session = Depends(get_db),
+                     current: User = Depends(get_current_user)):
+    """Edit a dividend record."""
+    row = service.update_dividend(db, did, payload, actor_id=current.id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy khoản cổ tức")
+    return row
+
+
+@router.delete("/dividends/{did}", response_model=Message)
+def delete_dividend(did: int, db: Session = Depends(get_db)):
+    """Delete a dividend record."""
+    if not service.delete_dividend(db, did):
+        raise HTTPException(status_code=404, detail="Không tìm thấy khoản cổ tức")
+    return Message(detail="Đã xóa khoản cổ tức")
 
 
 # --- Manual holdings (danh mục đang giữ, nhập tay) ------------------------

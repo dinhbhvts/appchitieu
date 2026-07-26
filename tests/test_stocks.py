@@ -56,3 +56,45 @@ def test_stock_pl_is_additive_across_people(client):
     assert pl_a == 2000000
     assert pl_b == -4000000
     assert pl_all == pl_a + pl_b
+
+
+def test_dividend_create_list_update(client):
+    user_id = client.get("/users").json()[0]["id"]
+
+    created = client.post("/stocks/dividends", json={
+        "date": "2026-06-01", "symbol": "nkg", "amount": 300000,
+        "user_id": user_id, "note": "Cổ tức Q2",
+    }).json()
+    # Symbol normalised to upper-case, same as trades.
+    assert created["symbol"] == "NKG"
+
+    rows = client.get("/stocks/dividends").json()
+    assert any(r["id"] == created["id"] for r in rows)
+
+    updated = client.put(f"/stocks/dividends/{created['id']}", json={
+        "amount": 350000,
+    }).json()
+    assert updated["amount"] == 350000
+
+
+def test_dividend_counts_as_profit_in_summary(client):
+    user_id = client.get("/users").json()[0]["id"]
+
+    # Deposit 10,000,000, no withdrawals, nothing currently held.
+    client.post("/stocks/cashflows", json={
+        "date": "2026-03-01", "type": "deposit", "amount": 10000000,
+        "user_id": user_id,
+    })
+    before = client.get("/stocks/summary").json()
+    # PL = 0(holdings) + 0(withdraw) + 0(dividend) - 10M(deposit) = -10M
+    assert before["total_realised_pl"] == -10000000
+    assert before["total_dividend"] == 0
+
+    client.post("/stocks/dividends", json={
+        "date": "2026-04-01", "symbol": "NKG", "amount": 500000,
+        "user_id": user_id,
+    })
+    after = client.get("/stocks/summary").json()
+    assert after["total_dividend"] == 500000
+    # Dividend counts as profit, same as a withdrawal would.
+    assert after["total_realised_pl"] == before["total_realised_pl"] + 500000

@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # become unreadable.
     account_encryption_key: str = "dev-only-change-me-in-production-acct-key"
 
+    # Google Drive attachment storage (Sổ tay > Thông tin cá nhân > Hồ sơ đính
+    # kèm). Uses a SERVICE ACCOUNT (not interactive OAuth) so the backend can
+    # upload/delete files without any login flow - see TRIEN_KHAI.md for the
+    # one-time Google Cloud Console setup. Both empty = attachment upload is
+    # disabled (returns a clear error), everything else in the app still works.
+    google_service_account_json: str = ""
+    google_drive_folder_id: str = ""
+
     # Tell pydantic to read a ".env" file sitting next to where we run the app.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

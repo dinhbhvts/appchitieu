@@ -13,10 +13,12 @@ from datetime import date as date_type
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -26,6 +28,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.enums import CashFlowType, TradeSide
+
+# Soft-delete columns shared by every deletable row in this module (and,
+# identically shaped, in transaction.py / asset.py / notebook_item.py /
+# notebook_attachment.py). "Xóa" from the UI never removes a row - see the
+# app-wide note in app/models/transaction.py for the reasoning - it only sets
+# these two columns, and every list/summary query filters is_deleted=False.
+_IS_DELETED_COMMENT = (
+    "Xóa mềm: True = người dùng đã xóa từ UI. Hàng vẫn còn trong DB, chỉ bị "
+    "ẩn khỏi mọi danh sách và tổng hợp."
+)
 
 
 class StockCashFlow(Base):
@@ -54,10 +66,21 @@ class StockCashFlow(Base):
     updated_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment=_IS_DELETED_COMMENT
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class StockTrade(Base):
     __tablename__ = "stock_trades"
+    __table_args__ = (
+        # _positions() in stock_service.py groups trades by symbol, then
+        # walks them in date order - this composite matches that access
+        # pattern directly (the separate single-column indexes below still
+        # help the plain by-date / by-symbol list views).
+        Index("ix_stock_trades_symbol_date", "symbol", "date"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     date: Mapped[date_type] = mapped_column(Date, nullable=False, index=True)
@@ -95,6 +118,10 @@ class StockTrade(Base):
     updated_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment=_IS_DELETED_COMMENT
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class StockHolding(Base):
@@ -137,6 +164,10 @@ class StockHolding(Base):
     updated_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment=_IS_DELETED_COMMENT
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class StockMonthSummary(Base):
@@ -169,3 +200,46 @@ class StockMonthSummary(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+
+
+class StockDividend(Base):
+    """A "cổ tức" (dividend) payment received for a ticker.
+
+    Shaped like StockTrade (date/symbol/fee/user/note) since the add form is
+    meant to feel the same as the buy/sell screen, but it is NOT a buy/sell
+    order - it is cash income from already holding the stock. Counted as a
+    positive contribution to realised P&L the same way a withdrawal is (see
+    stock_service.summary): cash that came OUT of the position as a return,
+    distinct from the investor's own deposited capital.
+    """
+
+    __tablename__ = "stock_dividends"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    date: Mapped[date_type] = mapped_column(Date, nullable=False, index=True)
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+
+    # Amount actually received (net of tax, if the broker withholds it).
+    amount: Mapped[float] = mapped_column(
+        Numeric(18, 0), nullable=False,
+        comment="Tiền cổ tức thực nhận (đã trừ thuế nếu có) - VNĐ.",
+    )
+    # Tax/fee withheld, kept separate for the record even though it is
+    # already netted out of `amount` above (display only).
+    fee: Mapped[float] = mapped_column(Numeric(18, 0), default=0, nullable=False)
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment=_IS_DELETED_COMMENT
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

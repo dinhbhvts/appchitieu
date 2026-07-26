@@ -1,10 +1,13 @@
-"""Data-access layer for stock cash flows and trades."""
+"""Data-access layer for stock cash flows, trades, holdings and dividends."""
+
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.stock import (
     StockCashFlow,
+    StockDividend,
     StockHolding,
     StockMonthSummary,
     StockTrade,
@@ -27,7 +30,7 @@ def list_cashflows(
     db: Session, user_id: int | None = None
 ) -> list[StockCashFlow]:
     """Deposits/withdrawals, oldest-first, optionally for one person."""
-    stmt = select(StockCashFlow)
+    stmt = select(StockCashFlow).where(StockCashFlow.is_deleted.is_(False))
     if user_id is not None:
         stmt = stmt.where(StockCashFlow.user_id == user_id)
     stmt = stmt.order_by(StockCashFlow.date.asc(), StockCashFlow.id.asc())
@@ -45,7 +48,8 @@ def update_cashflow(
 
 
 def delete_cashflow(db: Session, row: StockCashFlow) -> None:
-    db.delete(row)
+    row.is_deleted = True
+    row.deleted_at = datetime.utcnow()
     db.commit()
 
 
@@ -69,7 +73,7 @@ def list_trades(
     Oldest-first matters: the average-cost calculation processes buys and sells
     in chronological order.
     """
-    stmt = select(StockTrade)
+    stmt = select(StockTrade).where(StockTrade.is_deleted.is_(False))
     if symbol is not None:
         stmt = stmt.where(StockTrade.symbol == symbol)
     if user_id is not None:
@@ -87,7 +91,8 @@ def update_trade(db: Session, row: StockTrade, changes: dict) -> StockTrade:
 
 
 def delete_trade(db: Session, row: StockTrade) -> None:
-    db.delete(row)
+    row.is_deleted = True
+    row.deleted_at = datetime.utcnow()
     db.commit()
 
 
@@ -107,7 +112,7 @@ def get_holding(db: Session, hid: int) -> StockHolding | None:
 
 
 def list_holdings(db: Session, user_id: int | None = None) -> list[StockHolding]:
-    stmt = select(StockHolding)
+    stmt = select(StockHolding).where(StockHolding.is_deleted.is_(False))
     if user_id is not None:
         stmt = stmt.where(StockHolding.user_id == user_id)
     stmt = stmt.order_by(StockHolding.symbol.asc())
@@ -123,7 +128,50 @@ def update_holding(db: Session, row: StockHolding, changes: dict) -> StockHoldin
 
 
 def delete_holding(db: Session, row: StockHolding) -> None:
-    db.delete(row)
+    row.is_deleted = True
+    row.deleted_at = datetime.utcnow()
+    db.commit()
+
+
+# --- Dividends (co tuc) ---------------------------------------------------
+
+
+def create_dividend(db: Session, data: dict) -> StockDividend:
+    row = StockDividend(**data)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def get_dividend(db: Session, did: int) -> StockDividend | None:
+    return db.get(StockDividend, did)
+
+
+def list_dividends(
+    db: Session, symbol: str | None = None, user_id: int | None = None
+) -> list[StockDividend]:
+    """Dividends received, oldest-first, optionally filtered by symbol/person."""
+    stmt = select(StockDividend).where(StockDividend.is_deleted.is_(False))
+    if symbol is not None:
+        stmt = stmt.where(StockDividend.symbol == symbol)
+    if user_id is not None:
+        stmt = stmt.where(StockDividend.user_id == user_id)
+    stmt = stmt.order_by(StockDividend.date.asc(), StockDividend.id.asc())
+    return list(db.scalars(stmt).all())
+
+
+def update_dividend(db: Session, row: StockDividend, changes: dict) -> StockDividend:
+    for field, value in changes.items():
+        setattr(row, field, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_dividend(db: Session, row: StockDividend) -> None:
+    row.is_deleted = True
+    row.deleted_at = datetime.utcnow()
     db.commit()
 
 

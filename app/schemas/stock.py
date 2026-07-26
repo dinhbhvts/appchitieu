@@ -76,6 +76,7 @@ class StockSummary(BaseModel):
     cum_deposit: float = 0      # tong da nap luy ke den cuoi ky
     cum_withdraw: float = 0     # tong da rut luy ke den cuoi ky
     invested_capital: float     # cum_deposit - cum_withdraw (von rong)
+    total_dividend: float = 0   # tong co tuc da nhan luy ke den cuoi ky
     total_realised_pl: float    # sum of realised profit/loss across symbols
     positions: list[SymbolPosition]
 
@@ -101,5 +102,32 @@ class HoldingUpdate(BaseModel):
     symbol: str | None = None
     quantity: int | None = Field(default=None, ge=0)
     value: float | None = Field(default=None, gt=0)
+    user_id: int | None = None
+    note: str | None = None
+
+
+class DividendCreate(BaseModel):
+    """Record a dividend (cổ tức) payment - same shape as a trade entry."""
+
+    date: date_type
+    symbol: str
+    amount: float = Field(..., gt=0)
+    fee: float = Field(default=0, ge=0)
+    user_id: int
+    note: str | None = None
+
+
+class DividendRead(DividendCreate):
+    id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DividendUpdate(BaseModel):
+    """Edit a dividend record. All fields optional."""
+
+    date: date_type | None = None
+    symbol: str | None = None
+    amount: float | None = Field(default=None, gt=0)
+    fee: float | None = Field(default=None, ge=0)
     user_id: int | None = None
     note: str | None = None

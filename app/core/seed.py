@@ -51,6 +51,8 @@ DEFAULT_NOTEBOOK_TYPES = [
     ("service", "Dịch vụ", "🌐"),
     ("maintenance", "Bảo trì", "🔧"),
     ("account", "Tài khoản", "🔑"),
+    ("personal_info", "Thông tin cá nhân", "🪪"),
+    ("task", "Nhắc việc", "✅"),
     ("note", "Ghi chú", "📝"),
     ("child_milestone", "Mốc của con", "👶"),
 ]

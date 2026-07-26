@@ -25,6 +25,12 @@ cryptography>=43.0
 # Lich am duong (quy doi ngay gio - dung cho sinh nhat/ngay gio am lich)
 lunarcalendar>=0.0.9
 
+# Upload file dinh kem (Ho so tien ich > Thong tin ca nhan) len Google Drive
+# cua chu app, qua Service Account (khong can dang nhap OAuth tuong tac).
+google-api-python-client>=2.150
+google-auth>=2.35
+python-multipart>=0.0.12
+
 # GHI CHU: PostgreSQL (dung khi trien khai len may chu) can them driver.
 # KHONG cai o buoc chay thu. Khi trien khai production moi chay:
 #     python -m pip install -r requirements-prod.txt

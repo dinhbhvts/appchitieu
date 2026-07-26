@@ -11,7 +11,7 @@ belongs to a whole month, not a specific day.
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -19,6 +19,13 @@ from app.core.database import Base
 
 class AssetSnapshot(Base):
     __tablename__ = "asset_snapshots"
+    __table_args__ = (
+        # The real access pattern is always "this year AND this month
+        # together" (see asset_service.month()/history()) - the pre-existing
+        # single-column indexes on year and month separately don't match that
+        # as well as this composite does.
+        Index("ix_asset_snapshots_year_month", "year", "month"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
@@ -46,3 +53,9 @@ class AssetSnapshot(Base):
     updated_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Xóa mềm: True = người dùng đã xóa từ UI. Hàng vẫn còn trong "
+                "DB, chỉ bị ẩn khỏi mọi danh sách và tổng hợp.",
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

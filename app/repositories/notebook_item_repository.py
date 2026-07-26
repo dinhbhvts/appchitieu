@@ -1,5 +1,7 @@
 """Data-access layer for the family notebook (NotebookItem)."""
 
+from datetime import datetime
+
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -27,10 +29,11 @@ def list_all(
 
     The search is a simple case-insensitive "contains" match across every
     non-sensitive text field (title, relation, phone, address, system,
-    username, info, tags, note) - approximate on purpose, per the "tìm
-    tương đối" requirement. The encrypted password is never searched.
+    username, info, tags, note, full_name, id_number, hometown,
+    birth_cert_no, health_insurance_no) - approximate on purpose, per the
+    "tìm tương đối" requirement. The encrypted password is never searched.
     """
-    stmt = select(NotebookItem)
+    stmt = select(NotebookItem).where(NotebookItem.is_deleted.is_(False))
     if type is not None:
         stmt = stmt.where(NotebookItem.type == type)
     if q:
@@ -46,6 +49,11 @@ def list_all(
                 NotebookItem.info.ilike(like),
                 NotebookItem.tags.ilike(like),
                 NotebookItem.note.ilike(like),
+                NotebookItem.full_name.ilike(like),
+                NotebookItem.id_number.ilike(like),
+                NotebookItem.hometown.ilike(like),
+                NotebookItem.birth_cert_no.ilike(like),
+                NotebookItem.health_insurance_no.ilike(like),
             )
         )
     stmt = stmt.order_by(NotebookItem.type, NotebookItem.title)
@@ -61,5 +69,7 @@ def update(db: Session, row: NotebookItem, changes: dict) -> NotebookItem:
 
 
 def delete(db: Session, row: NotebookItem) -> None:
-    db.delete(row)
+    """Soft-delete (see the app-wide note in app/models/transaction.py)."""
+    row.is_deleted = True
+    row.deleted_at = datetime.utcnow()
     db.commit()

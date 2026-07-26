@@ -136,6 +136,50 @@ def test_upcoming_includes_service_due_date(client):
                for u in upcoming)
 
 
+def test_personal_info_fields_roundtrip(client):
+    r = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông",
+        "full_name": "Nguyễn Thị Bông", "date1": "2018-03-10",
+        "phone": "0987654321", "id_number": "001234567890",
+        "id_issued_date": "2024-01-15", "id_issued_place": "Cục CS QLHC về TTXH",
+        "date2": "2034-01-15", "birth_cert_no": "12/2018/KS",
+        "health_insurance_no": "HS4123456789012",
+        "address": "Yên Lạc - Vĩnh Phúc", "hometown": "Vĩnh Phúc",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["full_name"] == "Nguyễn Thị Bông"
+    assert data["id_number"] == "001234567890"
+    assert data["id_issued_place"] == "Cục CS QLHC về TTXH"
+    assert data["birth_cert_no"] == "12/2018/KS"
+    assert data["health_insurance_no"] == "HS4123456789012"
+    assert data["hometown"] == "Vĩnh Phúc"
+
+    # Searchable by the new fields too.
+    found = client.get("/notebook-items", params={"q": "001234567890"}).json()
+    assert any(x["id"] == data["id"] for x in found)
+
+
+def test_task_type_and_upcoming_due_date(client):
+    import datetime
+    today = datetime.date.today()
+    due = today + datetime.timedelta(days=3)
+
+    r = client.post("/notebook-items", json={
+        "type": "task", "title": "Đóng học phí",
+        "info": "Nộp học phí kỳ 2 cho con",
+        "date2": due.isoformat(), "tags": "#hoc_phi",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["info"] == "Nộp học phí kỳ 2 cho con"
+
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    match = next((u for u in upcoming if u["item"]["title"] == "Đóng học phí"), None)
+    assert match is not None
+    assert match["occurs_on"] == due.isoformat()
+
+
 def test_upcoming_lunar_anniversary_converts_to_solar(client):
     # Just check it doesn't error and returns a solar date - the actual
     # lunar math is covered by test_lunar.py.

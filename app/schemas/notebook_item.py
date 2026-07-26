@@ -22,7 +22,15 @@ class NotebookItemBase(BaseModel):
     system: str | None = None
     username: str | None = None
     password: str | None = None  # plain in transit; encrypted at rest
-    # custom-type field ("Thông tin").
+    # type=personal_info fields (Thông tin cá nhân).
+    full_name: str | None = None
+    id_number: str | None = None
+    id_issued_date: date_type | None = None
+    id_issued_place: str | None = None
+    birth_cert_no: str | None = None
+    health_insurance_no: str | None = None
+    hometown: str | None = None
+    # custom-type field ("Thông tin"); also used as "Công việc" for type=task.
     info: str | None = None
     tags: str | None = None
     note: str | None = None
@@ -48,6 +56,13 @@ class NotebookItemUpdate(BaseModel):
     system: str | None = None
     username: str | None = None
     password: str | None = None
+    full_name: str | None = None
+    id_number: str | None = None
+    id_issued_date: date_type | None = None
+    id_issued_place: str | None = None
+    birth_cert_no: str | None = None
+    health_insurance_no: str | None = None
+    hometown: str | None = None
     info: str | None = None
     tags: str | None = None
     note: str | None = None

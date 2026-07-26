@@ -18,6 +18,8 @@ from app.models.enums import CashFlowType, TradeSide
 from app.repositories import stock_repository as repo
 from app.schemas.stock import (
     CashFlowCreate,
+    DividendCreate,
+    DividendUpdate,
     HoldingCreate,
     HoldingUpdate,
     CashFlowUpdate,
@@ -80,6 +82,41 @@ def delete_trade(db: Session, tid: int) -> bool:
         return False
     repo.delete_trade(db, row)
     return True
+
+
+# --- Dividends (co tuc) ----------------------------------------------------
+
+def create_dividend(db: Session, payload: DividendCreate, actor_id=None):
+    """Record a dividend payment. Symbol is normalised to upper-case, same
+    as trades, so 'nkg' and 'NKG' are treated as the same ticker."""
+    data = payload.model_dump()
+    data["symbol"] = data["symbol"].strip().upper()
+    data["updated_by"] = actor_id
+    return repo.create_dividend(db, data)
+
+
+def update_dividend(db: Session, did: int, payload: DividendUpdate, actor_id=None):
+    row = repo.get_dividend(db, did)
+    if row is None:
+        return None
+    changes = payload.model_dump(exclude_unset=True)
+    if "symbol" in changes and changes["symbol"]:
+        changes["symbol"] = changes["symbol"].strip().upper()
+    changes["updated_by"] = actor_id
+    return repo.update_dividend(db, row, changes)
+
+
+def delete_dividend(db: Session, did: int) -> bool:
+    row = repo.get_dividend(db, did)
+    if row is None:
+        return False
+    repo.delete_dividend(db, row)
+    return True
+
+
+def list_dividends(db: Session, user_id: int | None = None):
+    """Dividends received, oldest first (optionally for one person)."""
+    return repo.list_dividends(db, user_id=user_id)
 
 
 def _positions(db: Session, user_id: int | None = None,
@@ -228,10 +265,19 @@ def summary(db: Session, user_id: int | None = None,
     #   lãi/lỗ = giá trị đang giữ + tổng đã rút − tổng đã nạp
     # This is additive, so the combined view equals husband + wife, and it does
     # not depend on the (incomplete) buy/sell log.
+    #
+    # Dividends (cổ tức) are added the same way withdrawals are: it is cash
+    # that came OUT of the position as a return, not the investor's own
+    # capital, so it should count as profit regardless of whether it was
+    # later withdrawn or left sitting in the account.
     holdings_value = sum(
         float(h.value) for h in repo.list_holdings(db, user_id=user_id)
     )
-    total_pl = holdings_value + cum_withdraw - cum_deposit
+    dividends = repo.list_dividends(db, user_id=user_id)
+    if end is not None:
+        dividends = [d for d in dividends if d.date <= end]
+    cum_dividend = sum(float(d.amount) for d in dividends)
+    total_pl = holdings_value + cum_withdraw + cum_dividend - cum_deposit
 
     return StockSummary(
         total_deposit=period_deposit,
@@ -239,6 +285,7 @@ def summary(db: Session, user_id: int | None = None,
         cum_deposit=cum_deposit,
         cum_withdraw=cum_withdraw,
         invested_capital=cum_deposit - cum_withdraw,
+        total_dividend=round(cum_dividend, 0),
         total_realised_pl=round(total_pl, 0),
         positions=[],
     )
