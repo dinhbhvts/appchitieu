@@ -77,7 +77,9 @@ def test_dividend_create_list_update(client):
     assert updated["amount"] == 350000
 
 
-def test_dividend_counts_as_profit_in_summary(client):
+def test_dividend_is_record_keeping_only_not_counted_in_pl(client):
+    """Cổ tức chỉ để lưu trữ - KHÔNG cộng vào Lãi/lỗ, vì người dùng tự điều
+    chỉnh "Đang giữ" hàng tháng đã bao gồm hiệu ứng cổ tức trong đó rồi."""
     user_id = client.get("/users").json()[0]["id"]
 
     # Deposit 10,000,000, no withdrawals, nothing currently held.
@@ -86,7 +88,7 @@ def test_dividend_counts_as_profit_in_summary(client):
         "user_id": user_id,
     })
     before = client.get("/stocks/summary").json()
-    # PL = 0(holdings) + 0(withdraw) + 0(dividend) - 10M(deposit) = -10M
+    # PL = 0(holdings) + 0(withdraw) - 10M(deposit) = -10M
     assert before["total_realised_pl"] == -10000000
     assert before["total_dividend"] == 0
 
@@ -95,6 +97,42 @@ def test_dividend_counts_as_profit_in_summary(client):
         "user_id": user_id,
     })
     after = client.get("/stocks/summary").json()
+    # total_dividend is surfaced for display...
     assert after["total_dividend"] == 500000
-    # Dividend counts as profit, same as a withdrawal would.
-    assert after["total_realised_pl"] == before["total_realised_pl"] + 500000
+    # ...but does NOT change total_realised_pl.
+    assert after["total_realised_pl"] == before["total_realised_pl"]
+
+
+def test_dividend_accepts_quantity_only_or_amount_only(client):
+    user_id = client.get("/users").json()[0]["id"]
+
+    qty_only = client.post("/stocks/dividends", json={
+        "date": "2026-05-01", "symbol": "NKG", "quantity": 100,
+        "user_id": user_id,
+    })
+    assert qty_only.status_code == 201
+    assert qty_only.json()["quantity"] == 100
+    assert qty_only.json()["amount"] is None
+
+    amount_only = client.post("/stocks/dividends", json={
+        "date": "2026-05-01", "symbol": "NKG", "amount": 200000,
+        "user_id": user_id,
+    })
+    assert amount_only.status_code == 201
+    assert amount_only.json()["amount"] == 200000
+
+    both = client.post("/stocks/dividends", json={
+        "date": "2026-05-01", "symbol": "NKG", "quantity": 50,
+        "amount": 100000, "user_id": user_id,
+    })
+    assert both.status_code == 201
+    assert both.json()["quantity"] == 50
+    assert both.json()["amount"] == 100000
+
+
+def test_dividend_requires_quantity_or_amount(client):
+    user_id = client.get("/users").json()[0]["id"]
+    r = client.post("/stocks/dividends", json={
+        "date": "2026-05-01", "symbol": "NKG", "user_id": user_id,
+    })
+    assert r.status_code == 422

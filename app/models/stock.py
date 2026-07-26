@@ -207,10 +207,14 @@ class StockDividend(Base):
 
     Shaped like StockTrade (date/symbol/fee/user/note) since the add form is
     meant to feel the same as the buy/sell screen, but it is NOT a buy/sell
-    order - it is cash income from already holding the stock. Counted as a
-    positive contribution to realised P&L the same way a withdrawal is (see
-    stock_service.summary): cash that came OUT of the position as a return,
-    distinct from the investor's own deposited capital.
+    order.
+
+    Record-keeping ONLY - deliberately NOT included in stock_service.summary's
+    total_realised_pl. The user manually true-ups the "Đang giữ" (StockHolding)
+    value at month-end, and that manual number already reflects any dividend
+    effect, so folding dividends into the P&L formula too would double-count
+    them. total_dividend is still surfaced in StockSummary as an informational
+    stat, just not summed into the P&L.
     """
 
     __tablename__ = "stock_dividends"
@@ -219,10 +223,20 @@ class StockDividend(Base):
     date: Mapped[date_type] = mapped_column(Date, nullable=False, index=True)
     symbol: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
 
+    # Number of shares the dividend was paid on (record-keeping only, not used
+    # in any calculation). Optional - the user may enter quantity, amount, or
+    # both; the service layer requires at least one of the two.
+    quantity: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+        comment="Số lượng cổ phiếu được chia cổ tức - chỉ để lưu trữ, "
+                "không dùng để tính toán.",
+    )
     # Amount actually received (net of tax, if the broker withholds it).
-    amount: Mapped[float] = mapped_column(
-        Numeric(18, 0), nullable=False,
-        comment="Tiền cổ tức thực nhận (đã trừ thuế nếu có) - VNĐ.",
+    # Optional for the same reason as quantity above.
+    amount: Mapped[float | None] = mapped_column(
+        Numeric(18, 0), nullable=True,
+        comment="Tiền cổ tức thực nhận (đã trừ thuế nếu có) - VNĐ. Chỉ để "
+                "lưu trữ, KHÔNG cộng vào Lãi/lỗ (xem stock_service.summary).",
     )
     # Tax/fee withheld, kept separate for the record even though it is
     # already netted out of `amount` above (display only).

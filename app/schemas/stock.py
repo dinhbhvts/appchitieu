@@ -2,7 +2,7 @@
 
 from datetime import date as date_type
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import CashFlowType, TradeSide
 
@@ -107,18 +107,34 @@ class HoldingUpdate(BaseModel):
 
 
 class DividendCreate(BaseModel):
-    """Record a dividend (cổ tức) payment - same shape as a trade entry."""
+    """Record a dividend (cổ tức) payment - record-keeping only, NOT used to
+    compute Lãi/lỗ (see StockDividend's docstring). The user may enter
+    quantity, amount, or both - at least one is required."""
 
     date: date_type
     symbol: str
-    amount: float = Field(..., gt=0)
+    quantity: int | None = Field(default=None, gt=0)
+    amount: float | None = Field(default=None, gt=0)
     fee: float = Field(default=0, ge=0)
     user_id: int
     note: str | None = None
 
+    @model_validator(mode="after")
+    def _require_quantity_or_amount(self) -> "DividendCreate":
+        if self.quantity is None and self.amount is None:
+            raise ValueError("Nhập ít nhất số lượng hoặc số tiền cổ tức")
+        return self
 
-class DividendRead(DividendCreate):
+
+class DividendRead(BaseModel):
     id: int
+    date: date_type
+    symbol: str
+    quantity: int | None = None
+    amount: float | None = None
+    fee: float
+    user_id: int
+    note: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -127,6 +143,7 @@ class DividendUpdate(BaseModel):
 
     date: date_type | None = None
     symbol: str | None = None
+    quantity: int | None = Field(default=None, gt=0)
     amount: float | None = Field(default=None, gt=0)
     fee: float | None = Field(default=None, ge=0)
     user_id: int | None = None

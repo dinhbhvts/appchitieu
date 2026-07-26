@@ -266,18 +266,19 @@ def summary(db: Session, user_id: int | None = None,
     # This is additive, so the combined view equals husband + wife, and it does
     # not depend on the (incomplete) buy/sell log.
     #
-    # Dividends (cổ tức) are added the same way withdrawals are: it is cash
-    # that came OUT of the position as a return, not the investor's own
-    # capital, so it should count as profit regardless of whether it was
-    # later withdrawn or left sitting in the account.
+    # Dividends (cổ tức) are DELIBERATELY NOT part of this formula. The user
+    # manually adjusts "Đang giữ" (StockHolding.value) at month-end, and that
+    # hand-entered number already accounts for any dividend received - adding
+    # dividends here too would double-count them. total_dividend below is
+    # purely a record-keeping stat for display, not an input to the P&L.
     holdings_value = sum(
         float(h.value) for h in repo.list_holdings(db, user_id=user_id)
     )
     dividends = repo.list_dividends(db, user_id=user_id)
     if end is not None:
         dividends = [d for d in dividends if d.date <= end]
-    cum_dividend = sum(float(d.amount) for d in dividends)
-    total_pl = holdings_value + cum_withdraw + cum_dividend - cum_deposit
+    cum_dividend = sum(float(d.amount) for d in dividends if d.amount is not None)
+    total_pl = holdings_value + cum_withdraw - cum_deposit
 
     return StockSummary(
         total_deposit=period_deposit,

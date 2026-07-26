@@ -154,8 +154,14 @@ def upgrade() -> None:
             sa.Column("date", sa.Date(), nullable=False),
             sa.Column("symbol", sa.String(length=20), nullable=False),
             sa.Column(
-                "amount", sa.Numeric(18, 0), nullable=False,
-                comment="Tiền cổ tức thực nhận (đã trừ thuế nếu có) - VNĐ.",
+                "quantity", sa.Integer(), nullable=True,
+                comment="Số lượng cổ phiếu được chia cổ tức - chỉ để lưu "
+                        "trữ, không dùng để tính toán.",
+            ),
+            sa.Column(
+                "amount", sa.Numeric(18, 0), nullable=True,
+                comment="Tiền cổ tức thực nhận (đã trừ thuế nếu có) - VNĐ. "
+                        "Chỉ để lưu trữ, KHÔNG cộng vào Lãi/lỗ.",
             ),
             sa.Column("fee", sa.Numeric(18, 0), nullable=False, server_default="0"),
             sa.Column("user_id", sa.Integer(), nullable=False),
