@@ -14,3 +14,15 @@ class LunarDateRead(BaseModel):
 
 class SolarDateRead(BaseModel):
     date: date_type
+
+
+class LunarMonthDayRead(BaseModel):
+    """One day of a solar month, paired with its lunar equivalent - powers
+    the month-calendar view (dương/âm song song) in the Tổng quan lunar
+    lookup tool."""
+
+    date: date_type
+    lunar_day: int
+    lunar_month: int
+    lunar_year: int
+    is_leap: bool

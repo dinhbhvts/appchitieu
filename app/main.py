@@ -46,6 +46,21 @@ async def lifespan(app: FastAPI):
     On startup we make sure the tables exist and seed the default data. For a
     simple two-person app this "create tables on boot" approach is enough for
     development; production uses Alembic migrations instead (see alembic/).
+
+    NOTE: we deliberately do NOT run Alembic migrations automatically here.
+    It looks tempting (it would remove the manual "don't forget to run
+    `alembic upgrade head` after deploying" step - see the real incident this
+    almost "fixed" in a past revision of this file), but testing it exposed a
+    genuine data-loss risk: if `alembic_version` is ever out of sync with the
+    database's actual shape (e.g. an interrupted migration, or a database
+    whose tables were originally created via create_all() before Alembic was
+    ever run against it - a state this project's own tables have been in
+    before, see TRIEN_KHAI.md mục 3B), running "upgrade head" blind can apply
+    a batch_alter_table step that DROPS a column Alembic doesn't expect to
+    see yet, even though the column is already correctly there. That is an
+    unacceptable risk for a personal finance app ("Dữ liệu phải an toàn" -
+    style-guide.md) to take silently on every boot. Migrations stay a
+    deliberate, manual, watched step (TRIEN_KHAI.md mục 3B) instead.
     """
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:

@@ -23,3 +23,15 @@ def test_lunar_to_solar_falls_back_when_day_does_not_exist(client):
     r = client.get("/lunar/to-solar", params={"year": 2026, "month": 2, "day": 30})
     assert r.status_code == 200
     assert r.json()["date"]  # got some valid date back, did not 400
+
+
+def test_lunar_month_returns_one_row_per_day(client):
+    r = client.get("/lunar/month", params={"year": 2026, "month": 2})
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 28  # Feb 2026 is not a leap solar year
+    assert rows[0]["date"] == "2026-02-01"
+    assert rows[-1]["date"] == "2026-02-28"
+    for row in rows:
+        assert 1 <= row["lunar_day"] <= 30
+        assert 1 <= row["lunar_month"] <= 12
