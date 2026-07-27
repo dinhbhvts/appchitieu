@@ -11,12 +11,17 @@ from app.core.database import SessionLocal
 from app.models.notebook_attachment import NotebookAttachment
 
 
-def _fake_upload(filename, mime_type, content):
-    return {"id": "fake-drive-id-123", "name": filename, "webViewLink": "https://drive.google.com/file/d/fake-drive-id-123/view"}
+def _fake_upload(filename, mime_type, content, parent_folder_id=None):
+    return {
+        "id": "fake-drive-id-123", "name": filename,
+        "webViewLink": "https://drive.google.com/file/d/fake-drive-id-123/view",
+    }
 
 
-def test_upload_list_and_soft_delete_attachment(client, monkeypatch):
+def test_upload_list_and_delete_attachment(client, monkeypatch):
     monkeypatch.setattr(drive, "upload_file", _fake_upload)
+    deleted_ids = []
+    monkeypatch.setattr(drive, "delete_file", lambda fid: deleted_ids.append(fid))
 
     item = client.post("/notebook-items", json={
         "type": "personal_info", "title": "Bông",
@@ -40,13 +45,76 @@ def test_upload_list_and_soft_delete_attachment(client, monkeypatch):
     rows_after = client.get(f"/notebook-items/{item['id']}/attachments").json()
     assert all(x["id"] != att["id"] for x in rows_after)
 
-    # Soft delete: still in the DB, and the Drive file id is untouched (the
-    # app never deletes the actual Drive file from this flow).
+    # DB row is soft-deleted (hidden from the app), AND the real Drive file
+    # was deleted too - explicit user request, unlike every other
+    # soft-deleted table in this app.
+    assert deleted_ids == ["fake-drive-id-123"]
     with SessionLocal() as db:
         row = db.get(NotebookAttachment, att["id"])
         assert row is not None
         assert row.is_deleted is True
         assert row.drive_file_id == "fake-drive-id-123"
+
+
+def test_rename_attachment_renames_on_drive_too(client, monkeypatch):
+    monkeypatch.setattr(drive, "upload_file", _fake_upload)
+    renamed = []
+    monkeypatch.setattr(
+        drive, "rename_file",
+        lambda fid, name: renamed.append((fid, name)) or {"id": fid, "name": name},
+    )
+
+    item = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông",
+    }).json()
+    att = client.post(
+        f"/notebook-items/{item['id']}/attachments",
+        files={"file": ("cccd.jpg", b"bytes", "image/jpeg")},
+    ).json()
+
+    r = client.patch(
+        f"/notebook-attachments/{att['id']}", json={"file_name": "cccd_moi.jpg"},
+    )
+    assert r.status_code == 200
+    assert r.json()["file_name"] == "cccd_moi.jpg"
+    assert renamed == [("fake-drive-id-123", "cccd_moi.jpg")]
+
+
+def test_rename_attachment_rejects_blank_name(client, monkeypatch):
+    monkeypatch.setattr(drive, "upload_file", _fake_upload)
+    monkeypatch.setattr(drive, "rename_file", lambda fid, name: {"id": fid, "name": name})
+
+    item = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông",
+    }).json()
+    att = client.post(
+        f"/notebook-items/{item['id']}/attachments",
+        files={"file": ("cccd.jpg", b"bytes", "image/jpeg")},
+    ).json()
+
+    r = client.patch(f"/notebook-attachments/{att['id']}", json={"file_name": "  "})
+    assert r.status_code == 400
+
+
+def test_upload_accepts_xlsx_rar_zip(client, monkeypatch):
+    monkeypatch.setattr(drive, "upload_file", _fake_upload)
+    item = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông",
+    }).json()
+
+    cases = [
+        ("so_lieu.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        ("ho_so.rar", "application/x-rar-compressed"),
+        ("ho_so.zip", "application/zip"),
+        # Some browsers send a generic type for these - extension fallback.
+        ("ho_so2.zip", "application/octet-stream"),
+    ]
+    for filename, mime in cases:
+        r = client.post(
+            f"/notebook-items/{item['id']}/attachments",
+            files={"file": (filename, b"bytes", mime)},
+        )
+        assert r.status_code == 201, f"{filename} ({mime}) should be accepted"
 
 
 def test_upload_rejects_unsupported_file_type(client, monkeypatch):

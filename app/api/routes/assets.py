@@ -60,7 +60,10 @@ def update_item(
     current: User = Depends(get_current_user),
 ):
     """Edit an asset line."""
-    row = service.update_item(db, item_id, payload, actor_id=current.id)
+    try:
+        row = service.update_item(db, item_id, payload, actor_id=current.id)
+    except service.SystemItemLockedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài sản")
     return row
@@ -69,7 +72,11 @@ def update_item(
 @router.delete("/{item_id}", response_model=Message)
 def delete_item(item_id: int, db: Session = Depends(get_db)):
     """Delete an asset line."""
-    if not service.delete_item(db, item_id):
+    try:
+        deleted = service.delete_item(db, item_id)
+    except service.SystemItemLockedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not deleted:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài sản")
     return Message(detail="Đã xóa tài sản")
 

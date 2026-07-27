@@ -160,6 +160,72 @@ def test_personal_info_fields_roundtrip(client):
     assert any(x["id"] == data["id"] for x in found)
 
 
+def test_profile_name_creates_drive_folder_and_uploads_land_there(client, monkeypatch):
+    """Saving a personal_info row with a "Tên hồ sơ" auto-creates a Drive
+    subfolder, and later attachment uploads for that row go into it."""
+    from app.core import drive
+
+    created_folders = []
+
+    def fake_create_folder(name, parent_folder_id=None):
+        created_folders.append(name)
+        return {"id": "folder-abc", "name": name}
+
+    upload_calls = []
+
+    def fake_upload(filename, mime_type, content, parent_folder_id=None):
+        upload_calls.append(parent_folder_id)
+        return {"id": "file-xyz", "name": filename, "webViewLink": "https://drive/x"}
+
+    monkeypatch.setattr(drive, "create_folder", fake_create_folder)
+    monkeypatch.setattr(drive, "upload_file", fake_upload)
+
+    r = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông", "profile_name": "Hồ sơ Bông",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["profile_name"] == "Hồ sơ Bông"
+    assert created_folders == ["Hồ sơ Bông"]
+
+    client.post(
+        f"/notebook-items/{data['id']}/attachments",
+        files={"file": ("cccd.jpg", b"bytes", "image/jpeg")},
+    )
+    assert upload_calls == ["folder-abc"]
+
+
+def test_profile_name_cannot_be_changed_after_creation(client, monkeypatch):
+    from app.core import drive
+    monkeypatch.setattr(
+        drive, "create_folder",
+        lambda name, parent_folder_id=None: {"id": "folder-abc", "name": name},
+    )
+
+    created = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông", "profile_name": "Hồ sơ Bông",
+    }).json()
+
+    # NotebookItemUpdate has no profile_name field at all - sending one is
+    # silently ignored, never changes the stored value.
+    r = client.put(f"/notebook-items/{created['id']}", json={
+        "title": "Bông (đã sửa)", "profile_name": "Tên khác",
+    })
+    assert r.status_code == 200
+    assert r.json()["profile_name"] == "Hồ sơ Bông"
+
+
+def test_profile_name_missing_drive_config_does_not_block_save(client):
+    """No monkeypatch - Drive isn't configured in tests, so folder creation
+    fails, but saving the personal_info row must still succeed (attachments
+    just fall back to the shared root folder)."""
+    r = client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông", "profile_name": "Hồ sơ Bông",
+    })
+    assert r.status_code == 201
+    assert r.json()["profile_name"] == "Hồ sơ Bông"
+
+
 def test_task_type_and_upcoming_due_date(client):
     import datetime
     today = datetime.date.today()

@@ -136,9 +136,16 @@ def _service():
         ) from e
 
 
-def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
-    """Upload one file into the configured folder (in the app owner's own
-    Google Drive - authenticated as that user, not a service account).
+def upload_file(
+    filename: str, mime_type: str, content: bytes, parent_folder_id: str | None = None,
+) -> dict:
+    """Upload one file into a Drive folder (in the app owner's own Google
+    Drive - authenticated as that user, not a service account).
+
+    `parent_folder_id` defaults to the shared GOOGLE_DRIVE_FOLDER_ID; pass a
+    specific subfolder id (e.g. a personal_info row's own folder from
+    create_folder()) to file it there instead - see
+    notebook_attachment_service.upload_attachment.
 
     Returns Drive's file metadata: {"id", "name", "webViewLink"}.
 
@@ -153,6 +160,7 @@ def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
             "Chưa cấu hình Google Drive (thiếu GOOGLE_DRIVE_FOLDER_ID) - "
             "xem hướng dẫn thiết lập trong TRIEN_KHAI.md mục 3C."
         )
+    folder_id = parent_folder_id or settings.google_drive_folder_id
     from googleapiclient.http import MediaIoBaseUpload
 
     # Credentials are re-fetched (and refreshed) directly here rather than
@@ -164,7 +172,7 @@ def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
     # DriveError immediately instead of a confusing mid-call failure.
     _credentials()
     media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
-    metadata = {"name": filename, "parents": [settings.google_drive_folder_id]}
+    metadata = {"name": filename, "parents": [folder_id]}
     try:
         return (
             _service()
@@ -189,6 +197,59 @@ def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
             "lấy refresh token (lấy ID từ URL thư mục, không phải cả đường link), "
             "(2) thư mục đó chưa bị xóa/di chuyển. "
             f"Chi tiết lỗi: {_describe_exception(e)}"
+        ) from e
+
+
+def create_folder(name: str, parent_folder_id: str | None = None) -> dict:
+    """Create a subfolder inside a Drive folder (defaults to the shared
+    GOOGLE_DRIVE_FOLDER_ID) - used to give each personal_info row ("Tên hồ
+    sơ") its own folder for attachments.
+
+    Returns Drive's folder metadata: {"id", "name"}. Raises the same
+    DriveNotConfigured/DriveError as upload_file.
+    """
+    settings = get_settings()
+    if not settings.google_drive_folder_id:
+        raise DriveNotConfigured(
+            "Chưa cấu hình Google Drive (thiếu GOOGLE_DRIVE_FOLDER_ID) - "
+            "xem hướng dẫn thiết lập trong TRIEN_KHAI.md mục 3C."
+        )
+    folder_id = parent_folder_id or settings.google_drive_folder_id
+    _credentials()
+    metadata = {
+        "name": name,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [folder_id],
+    }
+    try:
+        return _service().files().create(body=metadata, fields="id, name").execute()
+    except (DriveNotConfigured, DriveError):
+        raise
+    except Exception as e:
+        logger.error("Lỗi tạo thư mục Google Drive:\n%s", traceback.format_exc())
+        raise DriveError(
+            f"Tạo thư mục hồ sơ trên Google Drive thất bại. Chi tiết lỗi: {_describe_exception(e)}"
+        ) from e
+
+
+def rename_file(drive_file_id: str, new_name: str) -> dict:
+    """Rename a file already on Drive (keeps the same content/id/link) - used
+    when the user renames an attachment in the app, to keep the Drive file
+    name in sync. Raises the same DriveNotConfigured/DriveError as upload_file."""
+    _credentials()
+    try:
+        return (
+            _service()
+            .files()
+            .update(fileId=drive_file_id, body={"name": new_name}, fields="id, name")
+            .execute()
+        )
+    except (DriveNotConfigured, DriveError):
+        raise
+    except Exception as e:
+        logger.error("Lỗi đổi tên file trên Google Drive:\n%s", traceback.format_exc())
+        raise DriveError(
+            f"Đổi tên file trên Google Drive thất bại. Chi tiết lỗi: {_describe_exception(e)}"
         ) from e
 
 
@@ -219,12 +280,16 @@ def _describe_exception(e: Exception) -> str:
 def delete_file(drive_file_id: str) -> None:
     """Permanently remove a file from Drive.
 
-    NOT called by the normal "xóa" flow in the app (that only soft-deletes
-    the NotebookAttachment row, per the app-wide soft-delete rule - the file
-    stays safely on Drive). This exists for a future hard-purge/admin tool,
-    and is best-effort: failures are swallowed since the DB row is always the
-    source of truth for what the app shows, and a stray Drive file is
-    harmless (just takes a little space in the user's own Drive).
+    Called by notebook_attachment_service.delete_attachment() alongside the
+    normal soft-delete of the NotebookAttachment row - the user explicitly
+    asked for "xóa file thì cũng tự động xóa file tương ứng trên drive", so
+    unlike every other soft-deleted table in this app, deleting an attachment
+    DOES remove the real file, not just hide the DB row.
+
+    Best-effort: failures are swallowed. The DB row's is_deleted is always
+    the source of truth for what the app shows, so if Drive is briefly
+    unreachable the file just becomes an orphan on Drive (harmless, just
+    takes a little space) rather than blocking the user's delete action.
     """
     try:
         _service().files().delete(fileId=drive_file_id).execute()

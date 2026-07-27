@@ -32,9 +32,17 @@ def list_for_item(db: Session, notebook_item_id: int) -> list[NotebookAttachment
     return list(db.scalars(stmt).all())
 
 
+def update(db: Session, row: NotebookAttachment, changes: dict) -> NotebookAttachment:
+    for field, value in changes.items():
+        setattr(row, field, value)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def delete(db: Session, row: NotebookAttachment) -> None:
-    """Soft-delete the DB row. Deliberately does NOT touch the file on
-    Google Drive - see the comment on NotebookAttachment.is_deleted."""
+    """Soft-delete the DB row (the service also deletes the real Drive file
+    alongside this - see the comment on NotebookAttachment.is_deleted)."""
     row.is_deleted = True
     row.deleted_at = datetime.utcnow()
     db.commit()

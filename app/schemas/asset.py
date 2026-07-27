@@ -26,6 +26,9 @@ class AssetItemUpdate(BaseModel):
 
 class AssetItemRead(AssetItemBase):
     id: int
+    # None = mục thường. Khác None = 1 trong 4 mục hệ thống (Tài khoản/Chứng
+    # khoán chồng/vợ) - ghim đầu danh sách, tự động tính, không sửa/xóa được.
+    system_key: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

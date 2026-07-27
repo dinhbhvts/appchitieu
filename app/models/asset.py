@@ -41,6 +41,19 @@ class AssetSnapshot(Base):
     # Value in VND. Numeric(18, 0) keeps whole numbers with no float rounding.
     value: Mapped[float] = mapped_column(Numeric(18, 0), nullable=False)
 
+    # NULL for a normal, freely-edited row. One of "vo_taikhoan",
+    # "chong_taikhoan", "vo_ck", "chong_ck" for the 4 pinned, auto-computed
+    # rows (see app/services/asset_service.py SYSTEM_ITEMS) - identifies them
+    # reliably (not by name text, which the user could otherwise rename) so
+    # the service can find/update the SAME row across page loads, pin them to
+    # the top in a fixed order, and block manual edit/delete on them.
+    system_key: Mapped[str | None] = mapped_column(
+        String(30), nullable=True, index=True,
+        comment="NULL = mục thường, người dùng tự nhập/sửa/xóa. Khác NULL = "
+                "mục hệ thống (Tài khoản/Chứng khoán chồng/vợ), tự động tính "
+                "toán mỗi lần xem, không cho sửa/xóa thủ công.",
+    )
+
     # Optional note, e.g. "1 cay", "gui tiet kiem", "2 chi".
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

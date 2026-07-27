@@ -49,12 +49,13 @@ class NotebookAttachment(Base):
         ForeignKey("users.id"), nullable=True
     )
 
-    # Soft delete: hides the attachment from the app but deliberately does
-    # NOT delete the underlying Drive file (see app/core/drive.py - avoids a
-    # UI bug ever permanently destroying a scanned document by mistake).
+    # Soft-deletes the DB row (hides it from every list) at the same time the
+    # service also deletes the real file on Drive (app/core/drive.py
+    # delete_file) - per explicit user request, this is the one table in the
+    # app where "xóa" removes the underlying file, not just the DB reference.
     is_deleted: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False,
-        comment="Xóa mềm: ẩn khỏi danh sách trong app, nhưng KHÔNG xóa file "
-                "thật trên Google Drive - file vẫn còn trên Drive nếu cần.",
+        comment="Xóa mềm: ẩn khỏi danh sách trong app. File thật trên Google "
+                "Drive cũng được xóa cùng lúc (không giữ lại như các bảng khác).",
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

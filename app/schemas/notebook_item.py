@@ -40,7 +40,11 @@ class NotebookItemBase(BaseModel):
 
 
 class NotebookItemCreate(NotebookItemBase):
-    pass
+    # "Tên hồ sơ" - only meaningful for type=personal_info. Set once here at
+    # creation to auto-create a matching Drive subfolder (see
+    # notebook_item_service.create_item) - deliberately absent from
+    # NotebookItemUpdate below so it can never be changed afterwards.
+    profile_name: str | None = None
 
 
 class NotebookItemUpdate(BaseModel):
@@ -74,6 +78,10 @@ class NotebookItemUpdate(BaseModel):
 
 class NotebookItemRead(NotebookItemBase):
     id: int
+    # None once the row's Drive subfolder failed/wasn't created (e.g. Drive
+    # wasn't configured yet) - attachments still work, just land in the
+    # shared root folder instead of this person's own subfolder.
+    profile_name: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

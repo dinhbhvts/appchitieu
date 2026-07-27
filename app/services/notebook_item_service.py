@@ -1,11 +1,13 @@
 """Business logic for the family notebook (NotebookItem)."""
 
 import calendar as _calendar
+import logging
 from datetime import date as date_type
 from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
+from app.core import drive
 from app.core.crypto import encrypt_text
 from app.core.lunar import next_solar_occurrence, solar_to_lunar
 from app.repositories import notebook_item_repository as repo
@@ -16,6 +18,8 @@ from app.schemas.notebook_item import (
     NotebookItemUpdate,
     UpcomingReminder,
 )
+
+logger = logging.getLogger("vibeapp.notebook_item")
 
 # Built-in type keys that recur every year on a fixed (month, day) - birthday
 # for the living, anniversary for the deceased (ngày giỗ).
@@ -47,7 +51,25 @@ def list_items(db: Session, type: str | None = None, q: str | None = None):
 def create_item(db: Session, payload: NotebookItemCreate, actor_id=None):
     data = _prepare_data(db, payload.model_dump())
     data["updated_by"] = actor_id
-    return repo.create(db, data)
+    row = repo.create(db, data)
+
+    # type=personal_info with a "Tên hồ sơ": auto-create its own Drive
+    # subfolder so this person's attachments land there instead of the
+    # shared root folder - see notebook_attachment_service.upload_attachment.
+    # Best-effort: if Drive isn't configured (or the call otherwise fails),
+    # the item is still saved fine - it just falls back to the shared root
+    # folder for attachments, same as before this feature existed.
+    if row.type == "personal_info" and row.profile_name:
+        try:
+            folder = drive.create_folder(row.profile_name)
+            repo.update(db, row, {"drive_folder_id": folder["id"]})
+        except Exception:
+            logger.warning(
+                "Không tạo được thư mục Drive cho hồ sơ '%s' (item id=%s) - "
+                "file đính kèm sẽ dùng thư mục chung.",
+                row.profile_name, row.id, exc_info=True,
+            )
+    return row
 
 
 def update_item(db: Session, item_id: int, payload: NotebookItemUpdate, actor_id=None):

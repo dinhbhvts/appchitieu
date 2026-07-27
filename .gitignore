@@ -5,3 +5,7 @@ venv/
 .env
 *.db
 .pytest_cache/
+
+# Google OAuth client secret downloaded from Cloud Console - never commit,
+# only needed locally to run get_drive_refresh_token.py once.
+scripts/client_secret.json

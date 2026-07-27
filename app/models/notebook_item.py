@@ -24,8 +24,11 @@ Which columns a given `type` actually uses (for the ADD/EDIT form):
                          + remind_birthday, phone, id_number, id_issued_date,
                          id_issued_place, date2 (Ngày hết hạn CCCD),
                          birth_cert_no, health_insurance_no,
-                         address (Địa chỉ thường trú), hometown - plus file
-                         attachments (NotebookAttachment)
+                         address (Địa chỉ thường trú), hometown,
+                         profile_name (Tên hồ sơ - chỉ đặt lúc tạo) - plus
+                         file attachments (NotebookAttachment), tự động lưu
+                         vào thư mục riêng trên Drive (drive_folder_id) nếu
+                         có profile_name
   - task:                title, info (Công việc), date2 (Ngày cần hoàn
                          thành - drives the Tổng quan reminder)
   - note / any custom
@@ -150,6 +153,25 @@ class NotebookItem(Base):
 
     # Free-text content: general notes, or extra detail for any type.
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # -- type=personal_info attachment-folder fields --
+    # "Tên hồ sơ" - set once at creation, used as the name of this person's
+    # own subfolder in Google Drive. Locked after creation (not in
+    # NotebookItemUpdate) so it can never drift out of sync with the actual
+    # Drive folder name - see app/services/notebook_item_service.py.
+    profile_name: Mapped[str | None] = mapped_column(
+        String(150), nullable=True,
+        comment="Chỉ áp dụng cho type=personal_info: 'Tên hồ sơ' - đặt 1 lần "
+                "lúc tạo, dùng làm tên thư mục con trên Google Drive để chứa "
+                "file đính kèm của người này. Không cho đổi sau khi tạo "
+                "(tránh lệch tên thư mục đã tạo trên Drive).",
+    )
+    # Google Drive folder id of that subfolder, created automatically the
+    # first time this row is saved with a profile_name (see
+    # notebook_item_service.create_item). Null if Drive wasn't configured at
+    # creation time, or profile_name wasn't given - attachments then fall
+    # back to the shared root folder, same as before this feature existed.
+    drive_folder_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()

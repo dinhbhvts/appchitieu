@@ -71,3 +71,145 @@ def test_yearly_history_not_affected_by_month_data_order(client):
     yearly = client.get("/assets/yearly-history").json()
     years = [row["year"] for row in yearly]
     assert years == sorted(years)
+
+
+# --- 4 mục hệ thống (Tài khoản/Chứng khoán vợ/chồng) từ 8/2026 -------------
+
+SYSTEM_NAMES = ["Tài khoản vợ", "Tài khoản chồng", "Chứng khoán vợ", "Chứng khoán chồng"]
+
+
+def _users(client):
+    users = client.get("/users").json()
+    return users[0]["id"], users[1]["id"]  # (chong, vo) - see seed.DEFAULT_USERS order
+
+
+def test_months_before_cutover_are_untouched_plain_rows(client):
+    """7/2026 (the anchor month) must stay exactly as a normal, user-entered
+    row - no pinning, no lock, even if its name matches a system label."""
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 776240000,
+    })
+    month = client.get("/assets/month", params={"year": 2026, "month": 7}).json()
+    assert len(month["items"]) == 1
+    item = month["items"][0]
+    assert item["system_key"] is None
+
+    # Fully editable/deletable, unlike a real system row.
+    r = client.put(f"/assets/{item['id']}", json={"value": 800000000})
+    assert r.status_code == 200
+    r = client.delete(f"/assets/{item['id']}")
+    assert r.status_code == 200
+
+
+def test_system_items_pinned_first_in_fixed_order_from_cutover(client):
+    month = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    names = [i["name"] for i in month["items"]]
+    assert names[:4] == SYSTEM_NAMES
+    keys = [i["system_key"] for i in month["items"][:4]]
+    assert keys == ["vo_taikhoan", "chong_taikhoan", "vo_ck", "chong_ck"]
+
+    # A plain row added afterwards must sort after the 4 pinned rows.
+    client.post("/assets", json={"year": 2026, "month": 8, "name": "Vàng", "value": 1})
+    month2 = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    assert [i["name"] for i in month2["items"][:4]] == SYSTEM_NAMES
+    assert month2["items"][-1]["name"] == "Vàng"
+
+
+def test_system_items_cannot_be_edited_or_deleted(client):
+    month = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    system_row = month["items"][0]
+    assert system_row["system_key"] == "vo_taikhoan"
+
+    r = client.put(f"/assets/{system_row['id']}", json={"value": 999})
+    assert r.status_code == 400
+
+    r = client.delete(f"/assets/{system_row['id']}")
+    assert r.status_code == 400
+
+
+def test_account_formula_uses_prev_closing_plus_net_held(client):
+    chong, vo = _users(client)
+
+    # Anchor month (7/2026): historical, hand-entered closing balances.
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 700_000_000,
+    })
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản chồng", "value": 300_000_000,
+    })
+
+    # 8/2026 flows: husband earns 30,500,000 and transfers 26,388,888 to wife.
+    client.post("/transactions", json={
+        "date": "2026-08-01", "type": "income", "amount": 30_500_000,
+        "content": "Lương chồng", "user_id": chong,
+    })
+    client.post("/transactions", json={
+        "date": "2026-08-02", "type": "transfer", "amount": 26_388_888,
+        "content": "Chuyển cho vợ", "user_id": chong,
+    })
+    # Wife spends 5,000,000 in August.
+    client.post("/transactions", json={
+        "date": "2026-08-03", "type": "expense", "amount": 5_000_000,
+        "content": "Chi tiêu", "user_id": vo,
+    })
+
+    month = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    by_name = {i["name"]: i["value"] for i in month["items"]}
+
+    # Vợ: prev(700M) + (nhận 26,388,888 - chi 5,000,000)
+    assert by_name["Tài khoản vợ"] == 700_000_000 + 26_388_888 - 5_000_000
+    # Chồng: prev(300M) + (thu 30,500,000 - chuyển 26,388,888)
+    assert by_name["Tài khoản chồng"] == 300_000_000 + 30_500_000 - 26_388_888
+
+
+def test_stock_items_auto_fill_from_holdings(client):
+    chong, vo = _users(client)
+    client.post("/stocks/holdings", json={
+        "user_id": vo, "symbol": "NKG", "value": 5_000_000,
+    })
+    client.post("/stocks/holdings", json={
+        "user_id": chong, "symbol": "AAA", "value": 12_000_000,
+    })
+
+    month = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    by_name = {i["name"]: i["value"] for i in month["items"]}
+    assert by_name["Chứng khoán vợ"] == 5_000_000
+    assert by_name["Chứng khoán chồng"] == 12_000_000
+
+
+def test_system_items_recompute_month_over_month(client):
+    """9/2026's account values should build on 8/2026's computed closing
+    balance, even if 9/2026 is viewed before 8/2026 ever was."""
+    chong, vo = _users(client)
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 100_000_000,
+    })
+    client.post("/transactions", json={
+        "date": "2026-08-05", "type": "income", "amount": 10_000_000,
+        "content": "Thu nhập vợ", "user_id": vo,
+    })
+    client.post("/transactions", json={
+        "date": "2026-09-05", "type": "income", "amount": 2_000_000,
+        "content": "Thu nhập vợ", "user_id": vo,
+    })
+
+    # Skip straight to September - August must be computed as a side effect.
+    sep = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    vo_sep = next(i["value"] for i in sep["items"] if i["name"] == "Tài khoản vợ")
+    assert vo_sep == 100_000_000 + 10_000_000 + 2_000_000
+
+    aug = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    vo_aug = next(i["value"] for i in aug["items"] if i["name"] == "Tài khoản vợ")
+    assert vo_aug == 100_000_000 + 10_000_000
+
+
+def test_copy_previous_month_does_not_duplicate_system_items(client):
+    """copy-previous into a system-era month must not create a second,
+    unlocked row with the same name as a pinned system row."""
+    client.get("/assets/month", params={"year": 2026, "month": 8})  # materialize system rows
+    client.post("/assets/copy-previous", params={"year": 2026, "month": 9})
+
+    sep = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    names = [i["name"] for i in sep["items"]]
+    for n in SYSTEM_NAMES:
+        assert names.count(n) == 1

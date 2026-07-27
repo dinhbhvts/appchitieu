@@ -4,12 +4,20 @@ Net worth of a month = sum of that month's asset values. The month-by-month
 trend ("thong ke luy ke") = the same sum grouped by month. A convenience
 "copy from previous month" lets the user start from last month's list and just
 edit the numbers, since assets usually change only a little each month.
+
+Starting the 8/2026 cycle, 4 rows are no longer freely edited: Tài khoản
+vợ/chồng and Chứng khoán vợ/chồng are pinned to the top and auto-computed
+every time the month is viewed - see SYSTEM_ITEMS and _ensure_system_items().
 """
+
+import calendar
+from datetime import date as date_type
 
 from sqlalchemy.orm import Session
 
 from app.models.asset import AssetSnapshot
 from app.repositories import asset_repository as repo
+from app.repositories import user_repository
 from app.schemas.asset import (
     AssetHistoryItem,
     AssetItemCreate,
@@ -17,11 +25,106 @@ from app.schemas.asset import (
     AssetMonth,
     AssetYearlyItem,
 )
+from app.services import report_service, stock_service
+
+
+class SystemItemLockedError(Exception):
+    """Raised when the caller tries to edit or delete one of the 4 pinned,
+    auto-computed rows (Tài khoản/Chứng khoán vợ/chồng) by hand."""
+
+
+# The 4 pinned rows and the formula each one uses:
+#   - "account": prev month's own closing value + this month's "số dư" for
+#     that person (report_service.period_summary(...).net_held already nets
+#     out transfers between spouses exactly the way the user described it -
+#     see the docstring there).
+#   - "stock": current sum of that person's manually-maintained holdings
+#     (StockHolding.value), not date-filtered - matches how the Stock screen
+#     already treats "Đang giữ" as a hand-adjusted current-state number.
+SYSTEM_ITEMS: dict[str, dict[str, str]] = {
+    "vo_taikhoan": {"name": "Tài khoản vợ", "user_name": "Vợ", "kind": "account"},
+    "chong_taikhoan": {"name": "Tài khoản chồng", "user_name": "Chồng", "kind": "account"},
+    "vo_ck": {"name": "Chứng khoán vợ", "user_name": "Vợ", "kind": "stock"},
+    "chong_ck": {"name": "Chứng khoán chồng", "user_name": "Chồng", "kind": "stock"},
+}
+
+# (year, month) from which the 4 rows above are pinned/auto-computed/locked.
+# Months before this stay exactly as before: plain, free-form, user-entered
+# rows (no system_key, fully editable/deletable).
+_SYSTEM_START = (2026, 8)
+
+
+def _prev_month(year: int, month: int) -> tuple[int, int]:
+    return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
+def _month_bounds(year: int, month: int) -> tuple[date_type, date_type]:
+    last_day = calendar.monthrange(year, month)[1]
+    return date_type(year, month, 1), date_type(year, month, last_day)
+
+
+def _closing_value(db: Session, year: int, month: int, key: str) -> float:
+    """The "chốt tháng" value of system row `key` at (year, month) - the
+    starting point for the next month's formula.
+
+    For months already on the system (>= _SYSTEM_START) this is the computed
+    system row. For the one anchor month right before the cutover (7/2026),
+    there is no system_key yet, so we fall back to the plain, hand-entered
+    row matching the same display name.
+    """
+    if (year, month) >= _SYSTEM_START:
+        row = repo.get_by_system_key(db, year, month, key)
+        return float(row.value) if row else 0.0
+    row = repo.get_by_name(db, year, month, SYSTEM_ITEMS[key]["name"])
+    return float(row.value) if row else 0.0
+
+
+def _ensure_system_items(db: Session, year: int, month: int) -> None:
+    """Compute/refresh the 4 pinned rows for (year, month), recursing onto
+    the previous month first so each month's formula always has an
+    up-to-date "chốt tháng" figure to build on. No-ops before 8/2026."""
+    if (year, month) < _SYSTEM_START:
+        return
+
+    py, pm = _prev_month(year, month)
+    if (py, pm) >= _SYSTEM_START:
+        _ensure_system_items(db, py, pm)
+
+    users = {u.name: u for u in user_repository.list_all(db)}
+    start, end = _month_bounds(year, month)
+
+    for key, meta in SYSTEM_ITEMS.items():
+        user = users.get(meta["user_name"])
+        if meta["kind"] == "account":
+            prev_closing = _closing_value(db, py, pm, key)
+            net_held = 0.0
+            if user is not None:
+                net_held = report_service.period_summary(
+                    db, start=start, end=end, user_id=user.id
+                ).net_held or 0.0
+            value = prev_closing + net_held
+        else:  # "stock"
+            value = 0.0
+            if user is not None:
+                value = sum(
+                    float(h.value)
+                    for h in stock_service.list_holdings(db, user_id=user.id)
+                )
+
+        existing = repo.get_by_system_key(db, year, month, key)
+        if existing is None:
+            repo.create(db, {
+                "year": year, "month": month, "name": meta["name"],
+                "value": value, "system_key": key,
+            })
+        else:
+            repo.update(db, existing, {"name": meta["name"], "value": value})
 
 
 def get_month(db: Session, year: int, month: int) -> AssetMonth:
     """Return every asset line for a month, the total (net worth), and the
     change versus the previous month (amount and %)."""
+    _ensure_system_items(db, year, month)
     items = repo.list_month(db, year, month)
     total = sum(float(i.value) for i in items)
 
@@ -60,6 +163,11 @@ def update_item(
     row = repo.get(db, item_id)
     if row is None:
         return None
+    if row.system_key is not None:
+        raise SystemItemLockedError(
+            "Mục này do hệ thống tự động tính (Tài khoản/Chứng khoán vợ/chồng), "
+            "không thể sửa thủ công."
+        )
     changes = payload.model_dump(exclude_unset=True)
     changes["updated_by"] = actor_id
     return repo.update(db, row, changes)
@@ -70,6 +178,11 @@ def delete_item(db: Session, item_id: int) -> bool:
     row = repo.get(db, item_id)
     if row is None:
         return False
+    if row.system_key is not None:
+        raise SystemItemLockedError(
+            "Mục này do hệ thống tự động tính (Tài khoản/Chứng khoán vợ/chồng), "
+            "không thể xóa."
+        )
     repo.delete(db, row)
     return True
 
@@ -145,6 +258,11 @@ def copy_from_previous(
         previous_rows = repo.list_month(db, latest_key[0], latest_key[1])
 
     for src in previous_rows:
+        # The 4 pinned system rows are never copied as plain rows - get_month()
+        # below computes them fresh via _ensure_system_items(); copying them
+        # here would create a duplicate, unlocked row with the same name.
+        if src.system_key is not None:
+            continue
         repo.create(db, {
             "year": year, "month": month,
             "name": src.name, "value": float(src.value), "note": src.note,
