@@ -49,11 +49,18 @@ class Settings(BaseSettings):
     account_encryption_key: str = "dev-only-change-me-in-production-acct-key"
 
     # Google Drive attachment storage (Sổ tay > Thông tin cá nhân > Hồ sơ đính
-    # kèm). Uses a SERVICE ACCOUNT (not interactive OAuth) so the backend can
-    # upload/delete files without any login flow - see TRIEN_KHAI.md for the
-    # one-time Google Cloud Console setup. Both empty = attachment upload is
-    # disabled (returns a clear error), everything else in the app still works.
-    google_service_account_json: str = ""
+    # kèm). Uses OAuth2 as the app owner's OWN Google account (a stored
+    # refresh token), NOT a service account - Google service accounts have
+    # zero storage quota of their own and cannot create files in a regular
+    # "My Drive" folder (only in a paid Google Workspace Shared Drive), so a
+    # service account fundamentally cannot work here for a personal Gmail
+    # account. See TRIEN_KHAI.md mục 3C for the one-time setup (run
+    # backend/scripts/get_drive_refresh_token.py once to obtain the refresh
+    # token). All empty = attachment upload is disabled (returns a clear
+    # error), everything else in the app still works.
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    google_oauth_refresh_token: str = ""
     google_drive_folder_id: str = ""
 
     # Tell pydantic to read a ".env" file sitting next to where we run the app.

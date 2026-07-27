@@ -72,7 +72,7 @@ def test_upload_to_missing_item_returns_404(client, monkeypatch):
 
 
 def test_upload_without_drive_configured_returns_clear_error(client):
-    # No monkeypatch here - GOOGLE_SERVICE_ACCOUNT_JSON is empty by default
+    # No monkeypatch here - the GOOGLE_OAUTH_* env vars are empty by default
     # in tests, so this should fail with a clear 400, not a crash.
     item = client.post("/notebook-items", json={
         "type": "personal_info", "title": "Bông",
