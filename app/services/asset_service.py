@@ -121,10 +121,54 @@ def _ensure_system_items(db: Session, year: int, month: int) -> None:
             repo.update(db, existing, {"name": meta["name"], "value": value})
 
 
+# Display names of the 4 system rows - a PLAIN row with one of these exact
+# names can only be the pre-cutover "anchor" row (_closing_value's name
+# lookup reads it for the very first system month) and must never also be
+# carried forward as an independent, unlocked duplicate - see
+# _carry_forward_plain_items.
+_SYSTEM_ITEM_NAMES = {meta["name"] for meta in SYSTEM_ITEMS.values()}
+
+
+def _carry_forward_plain_items(db: Session, year: int, month: int) -> None:
+    """Auto-copy the latest earlier month's PLAIN (non-system) asset rows
+    into (year, month) the first time this month is viewed, so the user only
+    has to tweak numbers instead of re-entering the whole list every month -
+    same convenience "Chép từ tháng trước" used to require a manual tap for.
+    The 4 pinned system rows are handled separately by _ensure_system_items
+    and are never touched here (skipped both as source and as a reason to
+    consider the month "already has data").
+
+    No-ops once the month already has at least one PLAIN row (whether from
+    an earlier carry-forward or the user's own manual entry/edit), so this
+    is safe and idempotent to call on every get_month().
+    """
+    if any(i.system_key is None for i in repo.list_month(db, year, month)):
+        return
+
+    # Find the latest month that is strictly before the target month.
+    target_key = (year, month)
+    latest_key: tuple[int, int] | None = None
+    for row in repo.list_all(db):
+        key = (row.year, row.month)
+        if key < target_key and (latest_key is None or key > latest_key):
+            latest_key = key
+    if latest_key is None:
+        return
+
+    for src in repo.list_month(db, latest_key[0], latest_key[1]):
+        if src.system_key is not None or src.name in _SYSTEM_ITEM_NAMES:
+            continue
+        repo.create(db, {
+            "year": year, "month": month,
+            "name": src.name, "value": float(src.value), "note": src.note,
+        })
+
+
 def get_month(db: Session, year: int, month: int) -> AssetMonth:
     """Return every asset line for a month, the total (net worth), and the
     change versus the previous month (amount and %)."""
     _ensure_system_items(db, year, month)
+    _carry_forward_plain_items(db, year, month)
     items = repo.list_month(db, year, month)
     total = sum(float(i.value) for i in items)
 
@@ -237,34 +281,13 @@ def copy_from_previous(
     db: Session, year: int, month: int
 ) -> AssetMonth:
     """Seed the given month with a copy of the most recent earlier month's
-    lines (names + values + notes), so the user only has to tweak numbers.
+    plain lines (names + values + notes), so the user only has to tweak
+    numbers.
 
-    Does nothing if the target month already has data, to avoid duplicates.
+    Kept as an explicit endpoint for the rare case where a month truly has
+    no data at all yet (nothing to carry forward from) - in the normal case
+    this is now a harmless no-op, since get_month() already performs this
+    exact carry-forward automatically the first time a month is viewed (see
+    _carry_forward_plain_items).
     """
-    existing = repo.list_month(db, year, month)
-    if existing:
-        return get_month(db, year, month)
-
-    # Find the latest month that is strictly before the target month.
-    target_key = (year, month)
-    previous_rows: list[AssetSnapshot] = []
-    latest_key: tuple[int, int] | None = None
-    for row in repo.list_all(db):
-        key = (row.year, row.month)
-        if key < target_key:
-            if latest_key is None or key > latest_key:
-                latest_key = key
-    if latest_key is not None:
-        previous_rows = repo.list_month(db, latest_key[0], latest_key[1])
-
-    for src in previous_rows:
-        # The 4 pinned system rows are never copied as plain rows - get_month()
-        # below computes them fresh via _ensure_system_items(); copying them
-        # here would create a duplicate, unlocked row with the same name.
-        if src.system_key is not None:
-            continue
-        repo.create(db, {
-            "year": year, "month": month,
-            "name": src.name, "value": float(src.value), "note": src.note,
-        })
     return get_month(db, year, month)

@@ -40,6 +40,57 @@ def test_copy_previous_month(client):
     assert updated["total"] == 776240000
 
 
+def test_plain_items_carry_forward_automatically_without_manual_copy(client):
+    """Just viewing a new month (GET /assets/month) must auto-carry the
+    previous month's plain lines - no explicit "Chép từ tháng trước" call
+    needed anymore."""
+    client.post("/assets", json={
+        "year": 2026, "month": 6, "name": "TK vo", "value": 700_000_000,
+    })
+    july = client.get("/assets/month", params={"year": 2026, "month": 7}).json()
+    assert july["total"] == 700_000_000
+    assert [i["name"] for i in july["items"]] == ["TK vo"]
+
+    # Still fully editable/deletable, like a normal manually-entered row.
+    item_id = july["items"][0]["id"]
+    r = client.put(f"/assets/{item_id}", json={"value": 1})
+    assert r.status_code == 200
+    r = client.delete(f"/assets/{item_id}")
+    assert r.status_code == 200
+
+
+def test_carry_forward_does_not_duplicate_on_repeated_views(client):
+    client.post("/assets", json={
+        "year": 2026, "month": 6, "name": "TK vo", "value": 700_000_000,
+    })
+    client.get("/assets/month", params={"year": 2026, "month": 7})
+    client.get("/assets/month", params={"year": 2026, "month": 7})
+    july = client.get("/assets/month", params={"year": 2026, "month": 7}).json()
+    assert len(july["items"]) == 1
+
+
+def test_carry_forward_coexists_with_system_items_from_cutover(client):
+    """From 8/2026 onward, a month always has the 4 pinned system rows -
+    plain rows must still carry forward alongside them without being
+    blocked by the system rows' mere presence."""
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 700_000_000,
+    })
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Vàng 9999", "value": 54_000_000,
+    })
+
+    aug = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    names = [i["name"] for i in aug["items"]]
+    assert "Vàng 9999" in names
+    # 4 system rows + the 1 carried-forward plain row.
+    assert len(aug["items"]) == 5
+
+    # Viewing again must not duplicate the carried-forward row.
+    aug2 = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    assert len(aug2["items"]) == 5
+
+
 def test_yearly_history_uses_last_month_of_each_year_as_closing(client):
     # 2024: two months of data - March and November. November (later month)
     # should be the "chốt năm" value, not the sum of both.
