@@ -150,9 +150,9 @@ def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
         # (this except block converts to a caught DriveError -> HTTPException
         # in the route, which never goes through main.py's unhandled-
         # exception logger) so the real cause is visible in server logs even
-        # when str(e) itself is unhelpful/empty (happens with some
-        # googleapiclient/requests network exceptions).
+        # when str(e) itself is unhelpful/empty.
         logger.error("Lỗi tải file lên Google Drive:\n%s", traceback.format_exc())
+        detail = _describe_exception(e)
         email = _service_account_email()
         raise DriveError(
             "Tải file lên Google Drive thất bại. Kiểm tra lại: (1) đã share "
@@ -162,8 +162,32 @@ def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
             + " quyền Editor, (2) GOOGLE_DRIVE_FOLDER_ID "
             f"(đang dùng: {settings.google_drive_folder_id}) đúng với ID thư "
             "mục đó (lấy từ URL thư mục trên Drive, không phải cả đường link). "
-            f"Chi tiết lỗi ({e.__class__.__name__}): {e}"
+            f"Chi tiết lỗi: {detail}"
         ) from e
+
+
+def _describe_exception(e: Exception) -> str:
+    """Human-readable detail for an exception that may stringify to nothing
+    useful on its own (notably googleapiclient.errors.HttpError, whose
+    str() can come back blank depending on the response shape - the real
+    info lives in e.resp.status / e.content, not in str(e))."""
+    try:
+        from googleapiclient.errors import HttpError
+
+        if isinstance(e, HttpError):
+            status = getattr(e.resp, "status", "?")
+            reason = getattr(e.resp, "reason", "") or ""
+            body = e.content
+            if isinstance(body, bytes):
+                body = body.decode("utf-8", errors="replace")
+            body = (body or "").strip()
+            return f"HTTP {status} {reason} - {body or '(không có nội dung phản hồi)'}"
+    except ImportError:
+        pass
+    text = str(e).strip()
+    return f"{e.__class__.__name__}: {text}" if text else (
+        f"{e.__class__.__name__} (không có thông tin chi tiết - xem log server)"
+    )
 
 
 def delete_file(drive_file_id: str) -> None:
