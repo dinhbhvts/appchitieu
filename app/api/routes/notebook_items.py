@@ -8,6 +8,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.common import Message
 from app.schemas.notebook_item import (
+    CalendarEvent,
     NotebookItemCreate,
     NotebookItemRead,
     NotebookItemUpdate,
@@ -36,6 +37,14 @@ def upcoming(days: int = 30, db: Session = Depends(get_db)):
     (converted from lunar automatically), and service/maintenance due dates.
     Used by the Dashboard's "sắp tới" list."""
     return service.get_upcoming(db, days=days)
+
+
+@router.get("/calendar-events", response_model=list[CalendarEvent])
+def calendar_events(year: int, month: int, db: Session = Depends(get_db)):
+    """Birthday/ngày giỗ/nhắc việc events landing on any day of solar
+    (year, month) - powers the highlight dots on the Tổng quan month
+    calendar (paired with /lunar/month for the day grid itself)."""
+    return service.get_calendar_events(db, year=year, month=month)
 
 
 @router.post("", response_model=NotebookItemRead, status_code=201)

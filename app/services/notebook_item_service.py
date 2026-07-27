@@ -1,15 +1,17 @@
 """Business logic for the family notebook (NotebookItem)."""
 
+import calendar as _calendar
 from datetime import date as date_type
 from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
 from app.core.crypto import encrypt_text
-from app.core.lunar import next_solar_occurrence
+from app.core.lunar import next_solar_occurrence, solar_to_lunar
 from app.repositories import notebook_item_repository as repo
 from app.repositories import notebook_type_repository as type_repo
 from app.schemas.notebook_item import (
+    CalendarEvent,
     NotebookItemCreate,
     NotebookItemUpdate,
     UpcomingReminder,
@@ -134,3 +136,71 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
 
     reminders.sort(key=lambda r: r.occurs_on)
     return reminders
+
+
+def _yearly_occurrence_in_month(
+    date1: date_type, is_lunar: bool, year: int, month: int,
+    lunar_lookup: dict[tuple[int, int], date_type],
+) -> date_type | None:
+    """Where a yearly-recurring date1 (birthday/anniversary) lands within
+    solar (year, month), or None if it doesn't land in this month at all.
+
+    Lunar dates are resolved via `lunar_lookup` (built once per request from
+    every day of the month - see get_calendar_events) rather than by
+    guessing a lunar year, since a solar month can span two different lunar
+    months/years (e.g. Tết) and this way it always agrees exactly with what
+    /lunar/month shows for the same days.
+    """
+    if is_lunar:
+        return lunar_lookup.get((date1.month, date1.day))
+    if date1.month != month:
+        return None
+    d = date1.day
+    while d >= 1:
+        try:
+            return date_type(year, month, d)
+        except ValueError:
+            d -= 1  # e.g. Feb 29 on a non-leap year -> fall back to Feb 28
+    return None
+
+
+def get_calendar_events(db: Session, year: int, month: int) -> list[CalendarEvent]:
+    """Every notebook-based event landing on a day of solar (year, month) -
+    birthday/personal_info/anniversary (yearly recurring, lunar-aware) and
+    task due dates (one-off, date2). Powers the event-highlight dots on the
+    Tổng quan month-calendar view (see /lunar/month for the day grid itself).
+    """
+    days_in_month = _calendar.monthrange(year, month)[1]
+    lunar_lookup: dict[tuple[int, int], date_type] = {}
+    for day in range(1, days_in_month + 1):
+        d = date_type(year, month, day)
+        l = solar_to_lunar(d)
+        lunar_lookup[(l.month, l.day)] = d
+
+    month_start = date_type(year, month, 1)
+    month_end = date_type(year, month, days_in_month)
+
+    events: list[CalendarEvent] = []
+    for item in repo.list_all(db):
+        is_birthday_reminder = (
+            item.type == "birthday"
+            or (item.type == "personal_info" and item.remind_birthday)
+        )
+        if is_birthday_reminder and item.date1:
+            occurs_on = _yearly_occurrence_in_month(
+                item.date1, item.date1_is_lunar, year, month, lunar_lookup,
+            )
+            if occurs_on:
+                events.append(CalendarEvent(date=occurs_on, category="birthday", title=item.title))
+        elif item.type == "anniversary" and item.date1:
+            occurs_on = _yearly_occurrence_in_month(
+                item.date1, item.date1_is_lunar, year, month, lunar_lookup,
+            )
+            if occurs_on:
+                events.append(CalendarEvent(date=occurs_on, category="anniversary", title=item.title))
+        elif item.type == "task" and item.date2:
+            if month_start <= item.date2 <= month_end:
+                events.append(CalendarEvent(date=item.date2, category="task", title=item.title))
+
+    events.sort(key=lambda e: e.date)
+    return events

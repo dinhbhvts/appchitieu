@@ -90,3 +90,18 @@ class UpcomingReminder(BaseModel):
     item: NotebookItemRead
     occurs_on: date_type
     days_until: int
+
+
+class CalendarEvent(BaseModel):
+    """One notebook-based event landing on a specific day of a solar month -
+    powers the highlight dots on the Tổng quan month-calendar view.
+
+    category: "birthday" (sinh nhật, includes personal_info with
+    remind_birthday=True) | "anniversary" (ngày giỗ) | "task" (nhắc việc).
+    date is always a concrete SOLAR date, same lunar-conversion guarantee as
+    UpcomingReminder.occurs_on.
+    """
+
+    date: date_type
+    category: str
+    title: str

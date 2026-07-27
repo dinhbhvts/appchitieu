@@ -224,3 +224,97 @@ def test_upcoming_lunar_anniversary_converts_to_solar(client):
     assert r.status_code == 200
     match = next(u for u in r.json() if u["item"]["title"] == "Giỗ ông")
     assert match["occurs_on"]
+
+
+# ---- /notebook-items/calendar-events (highlight dots on the month calendar) ----
+
+def test_calendar_events_includes_solar_birthday_in_month(client):
+    client.post("/notebook-items", json={
+        "type": "birthday", "title": "Sinh nhật con", "date1": "2000-05-12",
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2027, "month": 5}).json()
+    match = next(e for e in events if e["title"] == "Sinh nhật con")
+    assert match["date"] == "2027-05-12"
+    assert match["category"] == "birthday"
+
+
+def test_calendar_events_excludes_birthday_outside_month(client):
+    client.post("/notebook-items", json={
+        "type": "birthday", "title": "Sinh nhật tháng khác", "date1": "2000-05-12",
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2027, "month": 6}).json()
+    assert all(e["title"] != "Sinh nhật tháng khác" for e in events)
+
+
+def test_calendar_events_includes_personal_info_birthday_when_remind_on(client):
+    client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông", "date1": "2018-09-03",
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2027, "month": 9}).json()
+    match = next(e for e in events if e["title"] == "Bông")
+    assert match["date"] == "2027-09-03"
+    assert match["category"] == "birthday"
+
+
+def test_calendar_events_excludes_personal_info_when_remind_off(client):
+    client.post("/notebook-items", json={
+        "type": "personal_info", "title": "Bông 2", "date1": "2018-09-03",
+        "remind_birthday": False,
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2027, "month": 9}).json()
+    assert all(e["title"] != "Bông 2" for e in events)
+
+
+def test_calendar_events_includes_solar_anniversary(client):
+    client.post("/notebook-items", json={
+        "type": "anniversary", "title": "Giỗ bà", "date1": "2020-03-15",
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2030, "month": 3}).json()
+    match = next(e for e in events if e["title"] == "Giỗ bà")
+    assert match["date"] == "2030-03-15"
+    assert match["category"] == "anniversary"
+
+
+def test_calendar_events_lunar_anniversary_matches_known_conversion(client):
+    # Same known fact as test_lunar.py::test_solar_to_lunar_and_back -
+    # Feb 10, 2024 is mùng 1 Tết (lunar 1/1).
+    client.post("/notebook-items", json={
+        "type": "anniversary", "title": "Giỗ ông", "date1": "2000-01-01",
+        "date1_is_lunar": True,
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2024, "month": 2}).json()
+    match = next(e for e in events if e["title"] == "Giỗ ông")
+    assert match["date"] == "2024-02-10"
+    assert match["category"] == "anniversary"
+
+
+def test_calendar_events_includes_task_due_date_in_month(client):
+    client.post("/notebook-items", json={
+        "type": "task", "title": "Đóng học phí", "date2": "2026-08-20",
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2026, "month": 8}).json()
+    match = next(e for e in events if e["title"] == "Đóng học phí")
+    assert match["date"] == "2026-08-20"
+    assert match["category"] == "task"
+
+
+def test_calendar_events_excludes_task_outside_month(client):
+    client.post("/notebook-items", json={
+        "type": "task", "title": "Việc tháng sau", "date2": "2026-09-01",
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2026, "month": 8}).json()
+    assert all(e["title"] != "Việc tháng sau" for e in events)
+
+
+def test_calendar_events_empty_month_returns_empty_list(client):
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 1999, "month": 1}).json()
+    assert events == []
