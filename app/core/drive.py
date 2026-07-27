@@ -26,9 +26,13 @@ Vietnamese message - nothing else in the app depends on this module.
 
 import io
 import json
+import logging
+import traceback
 from functools import lru_cache
 
 from app.core.config import get_settings
+
+logger = logging.getLogger("vibeapp.drive")
 
 
 class DriveNotConfigured(Exception):
@@ -73,8 +77,10 @@ def _credentials():
             info, scopes=["https://www.googleapis.com/auth/drive"]
         )
     except Exception as e:
+        logger.error("Lỗi tạo credentials Google Drive:\n%s", traceback.format_exc())
         raise DriveError(
-            f"Không tạo được thông tin xác thực Google Drive: {e}"
+            f"Không tạo được thông tin xác thực Google Drive "
+            f"({e.__class__.__name__}): {e}"
         ) from e
 
 
@@ -89,7 +95,22 @@ def _service():
     except (DriveNotConfigured, DriveError):
         raise
     except Exception as e:
-        raise DriveError(f"Không kết nối được tới Google Drive: {e}") from e
+        logger.error("Lỗi khởi tạo Google Drive client:\n%s", traceback.format_exc())
+        raise DriveError(
+            f"Không kết nối được tới Google Drive "
+            f"({e.__class__.__name__}): {e}"
+        ) from e
+
+
+def _service_account_email() -> str | None:
+    """Best-effort read of the service account's own email (the "share the
+    folder with this address" value) - so a failed-upload error message can
+    show it directly instead of making the user go dig it out of the JSON
+    key again. Returns None if credentials can't even be loaded."""
+    try:
+        return _credentials().service_account_email
+    except Exception:
+        return None
 
 
 def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
@@ -125,13 +146,23 @@ def upload_file(filename: str, mime_type: str, content: bytes) -> dict:
         # Most common real-world cause: the shared folder ID is wrong, or the
         # folder was never actually shared with the service account's email
         # (mục 3C bước 4, TRIEN_KHAI.md) - Google then rejects the upload
-        # with a permission/not-found error.
+        # with a permission/not-found error. Logged with full traceback here
+        # (this except block converts to a caught DriveError -> HTTPException
+        # in the route, which never goes through main.py's unhandled-
+        # exception logger) so the real cause is visible in server logs even
+        # when str(e) itself is unhelpful/empty (happens with some
+        # googleapiclient/requests network exceptions).
+        logger.error("Lỗi tải file lên Google Drive:\n%s", traceback.format_exc())
+        email = _service_account_email()
         raise DriveError(
             "Tải file lên Google Drive thất bại. Kiểm tra lại: (1) đã share "
-            "thư mục Drive với đúng email service account (dạng "
-            "...@...iam.gserviceaccount.com) quyền Editor, (2) "
-            "GOOGLE_DRIVE_FOLDER_ID đúng với thư mục đó. "
-            f"Chi tiết lỗi: {e}"
+            "thư mục Drive với "
+            + (f"ĐÚNG email service account này: {email}" if email
+               else "đúng email service account (dạng ...@...iam.gserviceaccount.com)")
+            + " quyền Editor, (2) GOOGLE_DRIVE_FOLDER_ID "
+            f"(đang dùng: {settings.google_drive_folder_id}) đúng với ID thư "
+            "mục đó (lấy từ URL thư mục trên Drive, không phải cả đường link). "
+            f"Chi tiết lỗi ({e.__class__.__name__}): {e}"
         ) from e
 
 
