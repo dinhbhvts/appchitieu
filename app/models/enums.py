@@ -44,6 +44,20 @@ class TradeSide(str, enum.Enum):
     sell = "sell"  # BAN
 
 
+class SavingsTermUnit(str, enum.Enum):
+    """Unit for a savings deposit's kỳ hạn (term)."""
+
+    day = "day"      # NGAY
+    month = "month"  # THANG
+
+
+class SavingsStatus(str, enum.Enum):
+    """Whether a savings deposit ("khoản gửi tiết kiệm") is still open."""
+
+    active = "active"    # DANG GUI
+    settled = "settled"  # DA TAT TOAN
+
+
 # NOTE: NotebookItem's "type" used to be a fixed Python enum here. It is now
 # a free string validated against the notebook_types table instead (see
 # app/models/notebook_type.py), so the user can add their own custom types

@@ -25,7 +25,7 @@ from app.schemas.asset import (
     AssetMonth,
     AssetYearlyItem,
 )
-from app.services import report_service, stock_service
+from app.services import report_service, savings_service, stock_service
 
 
 class SystemItemLockedError(Exception):
@@ -37,7 +37,10 @@ class SystemItemLockedError(Exception):
 #   - "account": prev month's own closing value + this month's "số dư" for
 #     that person (report_service.period_summary(...).net_held already nets
 #     out transfers between spouses exactly the way the user described it -
-#     see the docstring there).
+#     see the docstring there) + this month's savings interest ACTUALLY
+#     received by that person (savings_service.interest_received_between,
+#     matched by settled_date falling in the month - a deposit only counts
+#     once it's tất toán, same as how the money only really "arrives" then).
 #   - "stock": current sum of that person's manually-maintained holdings
 #     (StockHolding.value), not date-filtered - matches how the Stock screen
 #     already treats "Đang giữ" as a hand-adjusted current-state number.
@@ -98,11 +101,15 @@ def _ensure_system_items(db: Session, year: int, month: int) -> None:
         if meta["kind"] == "account":
             prev_closing = _closing_value(db, py, pm, key)
             net_held = 0.0
+            interest = 0.0
             if user is not None:
                 net_held = report_service.period_summary(
                     db, start=start, end=end, user_id=user.id
                 ).net_held or 0.0
-            value = prev_closing + net_held
+                interest = savings_service.interest_received_between(
+                    db, user_id=user.id, start=start, end=end
+                )
+            value = prev_closing + net_held + interest
         else:  # "stock"
             value = 0.0
             if user is not None:

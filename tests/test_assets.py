@@ -264,3 +264,111 @@ def test_copy_previous_month_does_not_duplicate_system_items(client):
     names = [i["name"] for i in sep["items"]]
     for n in SYSTEM_NAMES:
         assert names.count(n) == 1
+
+
+def test_account_formula_includes_settled_savings_interest(client):
+    """Tài khoản vợ/chồng = công thức cũ (prev_closing + net_held) CỘNG THÊM
+    tiền lãi thực nhận (actual_interest) của các khoản tiết kiệm tất toán
+    trong tháng đó - xem asset_service._ensure_system_items."""
+    chong, vo = _users(client)
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 700_000_000,
+    })
+
+    dep = client.post("/savings", json={
+        "name": "TK vợ", "start_date": "2026-01-01", "amount": 100_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": vo,
+    }).json()
+    client.put(f"/savings/{dep['id']}", json={
+        "status": "settled", "settled_date": "2026-08-10", "actual_interest": 2_500_000,
+    })
+
+    month = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    by_name = {i["name"]: i["value"] for i in month["items"]}
+    assert by_name["Tài khoản vợ"] == 700_000_000 + 2_500_000
+
+
+def test_account_formula_ignores_interest_settled_outside_the_month(client):
+    """A deposit's actual_interest only counts toward the month its
+    settled_date actually falls in - not the month it was created/started."""
+    chong, vo = _users(client)
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 700_000_000,
+    })
+
+    dep = client.post("/savings", json={
+        "name": "TK vợ", "start_date": "2026-01-01", "amount": 100_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": vo,
+    }).json()
+    # Settled in September, not August.
+    client.put(f"/savings/{dep['id']}", json={
+        "status": "settled", "settled_date": "2026-09-05", "actual_interest": 2_500_000,
+    })
+
+    aug = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    by_name_aug = {i["name"]: i["value"] for i in aug["items"]}
+    assert by_name_aug["Tài khoản vợ"] == 700_000_000
+
+    sep = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    by_name_sep = {i["name"]: i["value"] for i in sep["items"]}
+    assert by_name_sep["Tài khoản vợ"] == 700_000_000 + 2_500_000
+
+
+def test_editing_past_month_transaction_cascades_to_later_month(client):
+    """Trả lời câu hỏi của người dùng: sửa số liệu ở tháng trước (giao dịch
+    hoặc lãi tiết kiệm) có tự động cập nhật cho các tháng sau không - CÓ, vì
+    _ensure_system_items luôn tính lại (không skip-if-exists) và đệ quy lùi
+    về tháng trước mỗi khi bất kỳ tháng nào được xem."""
+    chong, vo = _users(client)
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 100_000_000,
+    })
+    tx = client.post("/transactions", json={
+        "date": "2026-08-05", "type": "income", "amount": 10_000_000,
+        "content": "Thu nhập vợ", "user_id": vo,
+    }).json()
+
+    # Materialize + cache both August and September with the original figure.
+    sep_before = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    vo_sep_before = next(i["value"] for i in sep_before["items"] if i["name"] == "Tài khoản vợ")
+    assert vo_sep_before == 100_000_000 + 10_000_000
+
+    # Retroactively edit August's transaction (a value already "chốt" before).
+    client.put(f"/transactions/{tx['id']}", json={"amount": 25_000_000})
+
+    # September must reflect the edit automatically on next view - no manual
+    # recompute step, no stale cached value.
+    sep_after = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    vo_sep_after = next(i["value"] for i in sep_after["items"] if i["name"] == "Tài khoản vợ")
+    assert vo_sep_after == 100_000_000 + 25_000_000
+
+    aug = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    vo_aug = next(i["value"] for i in aug["items"] if i["name"] == "Tài khoản vợ")
+    assert vo_aug == 100_000_000 + 25_000_000
+
+
+def test_editing_past_settled_savings_interest_cascades_to_later_month(client):
+    """Same cascade guarantee, but for a retroactive edit to a savings
+    deposit's actual_interest (instead of a plain transaction)."""
+    chong, vo = _users(client)
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản chồng", "value": 200_000_000,
+    })
+    dep = client.post("/savings", json={
+        "name": "TK chồng", "start_date": "2026-01-01", "amount": 50_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    }).json()
+    client.put(f"/savings/{dep['id']}", json={
+        "status": "settled", "settled_date": "2026-08-15", "actual_interest": 1_000_000,
+    })
+
+    sep_before = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    v_before = next(i["value"] for i in sep_before["items"] if i["name"] == "Tài khoản chồng")
+    assert v_before == 200_000_000 + 1_000_000
+
+    # Correct the actual_interest figure after the fact.
+    client.put(f"/savings/{dep['id']}", json={"actual_interest": 1_800_000})
+
+    sep_after = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    v_after = next(i["value"] for i in sep_after["items"] if i["name"] == "Tài khoản chồng")
+    assert v_after == 200_000_000 + 1_800_000

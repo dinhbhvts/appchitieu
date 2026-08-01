@@ -30,6 +30,7 @@ from app.api.routes import (
     notebook_items,
     notebook_types,
     reports,
+    savings,
     stocks,
     transactions,
     users,
@@ -132,4 +133,5 @@ app.include_router(notebook_types.router, dependencies=_auth)
 app.include_router(lunar.router, dependencies=_auth)
 app.include_router(transactions.router, dependencies=_auth)
 app.include_router(stocks.router, dependencies=_auth)
+app.include_router(savings.router, dependencies=_auth)
 app.include_router(reports.router, dependencies=_auth)

@@ -10,6 +10,7 @@ from app.models.category import Category
 from app.models.notebook_attachment import NotebookAttachment
 from app.models.notebook_item import NotebookItem
 from app.models.notebook_type import NotebookType
+from app.models.savings import SavingsDeposit
 from app.models.stock import (
     StockCashFlow,
     StockDividend,
@@ -26,6 +27,7 @@ __all__ = [
     "NotebookAttachment",
     "NotebookItem",
     "NotebookType",
+    "SavingsDeposit",
     "StockCashFlow",
     "StockDividend",
     "StockHolding",
