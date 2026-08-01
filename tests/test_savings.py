@@ -200,6 +200,10 @@ def test_summary_totals(client):
     assert combined["total_deposited_this_year"] == 150_000_000
     # 4,800,000 / 80,000,000 * 100 = 6.0%
     assert combined["avg_return_rate_pct"] == 6.0
+    # TK1 và TK2 đều mở trong chính 2026 (không phải "gửi từ trước"); TK3 tuy
+    # mở từ 2025 nhưng đã tất toán nên không còn active - vậy "gửi từ trước
+    # năm 2026 mà vẫn đang gửi" = 0.
+    assert combined["active_amount_before_this_year"] == 0
 
     only_vo = client.get("/savings/summary", params={"year": 2026, "user_id": vo}).json()
     assert only_vo["total_active_amount"] == 50_000_000
@@ -216,6 +220,37 @@ def test_summary_totals(client):
     # TK3 mở trong 2025.
     assert other_year["total_deposited_this_year"] == 80_000_000
     assert other_year["avg_return_rate_pct"] is None
+
+
+def test_summary_active_amount_before_this_year_excludes_new_deposits(client):
+    """Bug đã sửa: 'Tổng số tiền gửi từ trước' KHÔNG được lẫn với các khoản
+    mới gửi trong chính năm đang xem - dù cả hai đều đang 'active'."""
+    chong, _ = _users(client)
+    client.post("/savings", json={
+        # Gửi từ 2024, vẫn đang gửi (chưa tất toán) khi xem báo cáo 2026.
+        "name": "TK cũ", "start_date": "2024-05-01", "amount": 60_000_000,
+        "term_value": 36, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    })
+    client.post("/savings", json={
+        # Gửi mới trong chính năm 2026.
+        "name": "TK mới", "start_date": "2026-03-01", "amount": 17_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    })
+
+    s = client.get("/savings/summary", params={"year": 2026}).json()
+    assert s["total_active_amount"] == 77_000_000
+    # Chỉ "TK cũ" (60M) tính là gửi từ trước 2026 - "TK mới" (17M) dù đang
+    # active vẫn không được tính vào đây vì nó mở trong chính năm 2026.
+    assert s["active_amount_before_this_year"] == 60_000_000
+    assert s["total_deposited_this_year"] == 17_000_000
+
+    # Xem báo cáo năm 2025 (trước khi "TK mới" tồn tại): ca hai khoan deu
+    # duoc mo truoc hoac trong 2025? TK cu mo 2024 (< 2025) -> tinh; TK moi
+    # mo 2026 (> 2025) nen khong lien quan gi toi nam 2025 (khong active tai
+    # thoi diem do trong du lieu logic don gian cua app - chi xet start_date).
+    s2025 = client.get("/savings/summary", params={"year": 2025}).json()
+    assert s2025["active_amount_before_this_year"] == 60_000_000
+    assert s2025["total_deposited_this_year"] == 0
 
 
 def test_summary_avg_return_rate_with_multiple_settlements(client):

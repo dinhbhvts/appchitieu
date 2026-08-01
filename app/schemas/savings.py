@@ -91,3 +91,8 @@ class SavingsSummary(BaseModel):
     # Tỉ suất lợi nhuận trung bình (%) = lãi đã nhận / tổng tất toán trong
     # năm * 100. None khi năm đó chưa có khoản nào tất toán (tránh chia 0).
     avg_return_rate_pct: float | None = None
+    # Số tiền các khoản ĐANG GỬI mà đã gửi TỪ TRƯỚC năm đang chọn (start_date
+    # năm trước đó trở về trước) - KHÁC total_active_amount, vì
+    # total_active_amount gồm cả khoản mới gửi trong chính năm đang chọn.
+    # Dùng cho card "Thông tin gửi tiết kiệm" trên màn Báo cáo.
+    active_amount_before_this_year: float = 0

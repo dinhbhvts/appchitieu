@@ -170,6 +170,12 @@ def summary(db: Session, year: int, user_id: int | None = None) -> SavingsSummar
         if d.start_date.year == year and in_scope(d)
     )
 
+    # Dang gui VA da gui tu truoc nam dang chon (khac total_active_amount,
+    # vi total_active_amount gom ca khoan moi gui trong chinh nam do).
+    active_amount_before_this_year = sum(
+        float(d.amount) for d in unsettled if d.start_date.year < year
+    )
+
     avg_return_rate_pct = (
         round(interest_this_year / total_settled_amount_this_year * 100, 2)
         if total_settled_amount_this_year > 0 else None
@@ -182,6 +188,7 @@ def summary(db: Session, year: int, user_id: int | None = None) -> SavingsSummar
         total_settled_amount_this_year=total_settled_amount_this_year,
         total_deposited_this_year=total_deposited_this_year,
         avg_return_rate_pct=avg_return_rate_pct,
+        active_amount_before_this_year=active_amount_before_this_year,
     )
 
 
