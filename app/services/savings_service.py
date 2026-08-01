@@ -135,24 +135,53 @@ def delete_deposit(db: Session, deposit_id: int) -> bool:
 def summary(db: Session, year: int, user_id: int | None = None) -> SavingsSummary:
     """Top-of-screen totals: current active total/count (not date-filtered,
     same "current state" philosophy as StockHolding) plus interest actually
-    received in `year` (by settled_date)."""
+    received in `year` (by settled_date), the principal tất toán in `year`,
+    the principal newly gửi in `year` (by start_date), and the resulting
+    average return rate - see SavingsSummary for exactly what each field
+    means."""
     unsettled = repo.list_unsettled(db, user_id=user_id)
     total_active_amount = sum(float(d.amount) for d in unsettled)
 
+    all_rows = repo.list_all(db)
+    in_scope = lambda d: user_id is None or d.user_id == user_id  # noqa: E731
+
     interest_this_year = sum(
         float(d.actual_interest)
-        for d in repo.list_all(db)
+        for d in all_rows
         if d.status == SavingsStatus.settled
         and d.actual_interest is not None
         and d.settled_date is not None
         and d.settled_date.year == year
-        and (user_id is None or d.user_id == user_id)
+        and in_scope(d)
+    )
+
+    total_settled_amount_this_year = sum(
+        float(d.amount)
+        for d in all_rows
+        if d.status == SavingsStatus.settled
+        and d.settled_date is not None
+        and d.settled_date.year == year
+        and in_scope(d)
+    )
+
+    total_deposited_this_year = sum(
+        float(d.amount)
+        for d in all_rows
+        if d.start_date.year == year and in_scope(d)
+    )
+
+    avg_return_rate_pct = (
+        round(interest_this_year / total_settled_amount_this_year * 100, 2)
+        if total_settled_amount_this_year > 0 else None
     )
 
     return SavingsSummary(
         total_active_amount=total_active_amount,
         active_count=len(unsettled),
         interest_received_this_year=interest_this_year,
+        total_settled_amount_this_year=total_settled_amount_this_year,
+        total_deposited_this_year=total_deposited_this_year,
+        avg_return_rate_pct=avg_return_rate_pct,
     )
 
 

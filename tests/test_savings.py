@@ -194,11 +194,51 @@ def test_summary_totals(client):
     assert combined["total_active_amount"] == 150_000_000
     assert combined["active_count"] == 2
     assert combined["interest_received_this_year"] == 4_800_000
+    # TK3 (80M, tất toán 2026) là khoản duy nhất tất toán trong 2026.
+    assert combined["total_settled_amount_this_year"] == 80_000_000
+    # TK1 + TK2 mở mới trong 2026 (100M + 50M); TK3 mở từ 2025 nên không tính.
+    assert combined["total_deposited_this_year"] == 150_000_000
+    # 4,800,000 / 80,000,000 * 100 = 6.0%
+    assert combined["avg_return_rate_pct"] == 6.0
 
     only_vo = client.get("/savings/summary", params={"year": 2026, "user_id": vo}).json()
     assert only_vo["total_active_amount"] == 50_000_000
     assert only_vo["active_count"] == 1
     assert only_vo["interest_received_this_year"] == 0
+    assert only_vo["total_settled_amount_this_year"] == 0
+    assert only_vo["total_deposited_this_year"] == 50_000_000
+    # Vợ chưa tất toán khoản nào trong 2026 -> tránh chia 0, trả về None.
+    assert only_vo["avg_return_rate_pct"] is None
 
     other_year = client.get("/savings/summary", params={"year": 2025}).json()
     assert other_year["interest_received_this_year"] == 0
+    assert other_year["total_settled_amount_this_year"] == 0
+    # TK3 mở trong 2025.
+    assert other_year["total_deposited_this_year"] == 80_000_000
+    assert other_year["avg_return_rate_pct"] is None
+
+
+def test_summary_avg_return_rate_with_multiple_settlements(client):
+    """Tỉ suất lợi nhuận trung bình = tổng lãi thực nhận / tổng tiền gốc tất
+    toán trong năm * 100, gộp nhiều khoản tất toán cùng năm."""
+    chong, _ = _users(client)
+    d1 = client.post("/savings", json={
+        "name": "TK A", "start_date": "2025-01-01", "amount": 100_000_000,
+        "term_value": 12, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    }).json()
+    d2 = client.post("/savings", json={
+        "name": "TK B", "start_date": "2025-06-01", "amount": 200_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    }).json()
+    client.put(f"/savings/{d1['id']}", json={
+        "status": "settled", "settled_date": "2026-01-01", "actual_interest": 5_000_000,
+    })
+    client.put(f"/savings/{d2['id']}", json={
+        "status": "settled", "settled_date": "2026-03-01", "actual_interest": 10_000_000,
+    })
+
+    s = client.get("/savings/summary", params={"year": 2026}).json()
+    assert s["total_settled_amount_this_year"] == 300_000_000
+    assert s["interest_received_this_year"] == 15_000_000
+    # 15,000,000 / 300,000,000 * 100 = 5.0%
+    assert s["avg_return_rate_pct"] == 5.0

@@ -75,8 +75,19 @@ class SavingsDepositRead(BaseModel):
 
 
 class SavingsSummary(BaseModel):
-    """Top-of-screen totals for the "Gửi tiết kiệm" tab."""
+    """Top-of-screen totals for the "Gửi tiết kiệm" tab, and the "Thông tin
+    gửi tiết kiệm" card trên màn Báo cáo."""
 
     total_active_amount: float   # tổng số tiền đang gửi (không phụ thuộc bộ lọc ngày)
     active_count: int            # số khoản đang gửi
     interest_received_this_year: float  # tổng lãi thực nhận trong năm đang chọn
+    # Tổng số tiền GỐC của các khoản đã tất toán trong năm đang chọn (theo
+    # settled_date) - dùng cho card "Tổng hợp khoản đã tất toán" và card Báo
+    # cáo. Không phải lãi - đây là số tiền gửi ban đầu được rút ra.
+    total_settled_amount_this_year: float = 0
+    # Tổng số tiền các khoản MỞ MỚI trong năm đang chọn (theo start_date),
+    # bất kể đã tất toán hay còn đang gửi - "gửi thêm trong năm".
+    total_deposited_this_year: float = 0
+    # Tỉ suất lợi nhuận trung bình (%) = lãi đã nhận / tổng tất toán trong
+    # năm * 100. None khi năm đó chưa có khoản nào tất toán (tránh chia 0).
+    avg_return_rate_pct: float | None = None
