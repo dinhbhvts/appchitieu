@@ -85,3 +85,12 @@ def delete_item(item_id: int, db: Session = Depends(get_db)):
 def copy_previous(year: int, month: int, db: Session = Depends(get_db)):
     """Fill a month from the most recent earlier month's list (editable)."""
     return service.copy_from_previous(db, year, month)
+
+
+@router.post("/recompute", response_model=AssetMonth)
+def recompute_all(db: Session = Depends(get_db)):
+    """Force-refresh the 4 pinned system rows for every month, in case the
+    user edited an earlier month's data and wants the update reflected
+    everywhere right away instead of waiting to view each later month by
+    hand. Returns the latest recomputed month."""
+    return service.recompute_all(db)

@@ -284,6 +284,35 @@ def yearly_history(db: Session) -> list[AssetYearlyItem]:
     return result
 
 
+def recompute_all(db: Session) -> AssetMonth:
+    """Force-refresh every system-era month's 4 pinned rows, from
+    _SYSTEM_START through the latest month that currently needs one - the
+    "Tổng hợp lại tài sản" button.
+
+    Normally a month's system rows already refresh themselves the moment the
+    user views ANY later month (get_month -> _ensure_system_items recurses
+    backward and always recomputes, never skip-if-exists - see the module
+    docstring). But that only happens when the user actually navigates to
+    view a later month; if they edit last month's data and don't go check
+    every month after it by hand, those already-materialized later months
+    stay stale until viewed. Calling _ensure_system_items on the LATEST
+    month that should have data forces the whole backward chain to refresh
+    in one shot, without the user having to click through every month.
+    """
+    latest = _SYSTEM_START
+    for row in repo.list_all(db):
+        if row.system_key is not None:
+            key = (row.year, row.month)
+            if key > latest:
+                latest = key
+    # Also cover "today" - so the very first click (before any system month
+    # has ever been viewed) still recomputes at least the current month.
+    today = date_type.today()
+    if (today.year, today.month) > latest:
+        latest = (today.year, today.month)
+    return get_month(db, latest[0], latest[1])
+
+
 def copy_from_previous(
     db: Session, year: int, month: int
 ) -> AssetMonth:

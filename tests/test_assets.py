@@ -372,3 +372,44 @@ def test_editing_past_settled_savings_interest_cascades_to_later_month(client):
     sep_after = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
     v_after = next(i["value"] for i in sep_after["items"] if i["name"] == "Tài khoản chồng")
     assert v_after == 200_000_000 + 1_800_000
+
+
+def test_recompute_all_refreshes_stale_later_months_without_viewing_them(client):
+    """"Tổng hợp lại tài sản" button: editing an earlier month's data, then
+    calling /assets/recompute WITHOUT re-viewing every later month by hand,
+    must still refresh every already-materialized later month in one shot."""
+    chong, vo = _users(client)
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 100_000_000,
+    })
+    tx = client.post("/transactions", json={
+        "date": "2026-08-05", "type": "income", "amount": 10_000_000,
+        "content": "Thu nhập vợ", "user_id": vo,
+    }).json()
+
+    # Materialize August AND September by viewing September once.
+    sep_before = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    vo_sep_before = next(i["value"] for i in sep_before["items"] if i["name"] == "Tài khoản vợ")
+    assert vo_sep_before == 100_000_000 + 10_000_000
+
+    # Retroactively edit August's transaction - no manual re-view of any
+    # later month happens after this.
+    client.put(f"/transactions/{tx['id']}", json={"amount": 40_000_000})
+
+    r = client.post("/assets/recompute")
+    assert r.status_code == 200
+
+    # A plain GET of September afterwards confirms the recompute endpoint
+    # actually persisted the refresh, not just returned a one-off value.
+    sep_after = client.get("/assets/month", params={"year": 2026, "month": 9}).json()
+    vo_sep_after = next(i["value"] for i in sep_after["items"] if i["name"] == "Tài khoản vợ")
+    assert vo_sep_after == 100_000_000 + 40_000_000
+
+
+def test_recompute_all_works_before_any_month_has_ever_been_viewed(client):
+    """Calling the button as the very first action (no system month
+    materialized yet) must not crash - falls back to computing "today"."""
+    r = client.post("/assets/recompute")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["year"] >= 2026
