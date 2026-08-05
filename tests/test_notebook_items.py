@@ -246,6 +246,47 @@ def test_task_type_and_upcoming_due_date(client):
     assert match["occurs_on"] == due.isoformat()
 
 
+def test_task_defaults_to_not_completed(client):
+    r = client.post("/notebook-items", json={"type": "task", "title": "Việc mới"})
+    assert r.json()["is_completed"] is False
+
+
+def test_completed_task_hidden_from_upcoming_and_calendar(client):
+    """Tich 'Da hoan thanh' -> bien mat khoi Dashboard (upcoming) VA khoi
+    dau cham su kien tren lich thang, du han van con trong 3 ngay toi -
+    day cung la nguon du lieu push_service dung de gui thong bao, nen viec
+    da xong tu dong ngung duoc nhac."""
+    import datetime
+    today = datetime.date.today()
+    due = today + datetime.timedelta(days=2)
+
+    r = client.post("/notebook-items", json={
+        "type": "task", "title": "Nộp báo cáo", "date2": due.isoformat(),
+    })
+    item_id = r.json()["id"]
+
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert any(u["item"]["title"] == "Nộp báo cáo" for u in upcoming)
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": due.year, "month": due.month}).json()
+    assert any(e["title"] == "Nộp báo cáo" for e in events)
+
+    r2 = client.put(f"/notebook-items/{item_id}", json={"is_completed": True})
+    assert r2.status_code == 200
+    assert r2.json()["is_completed"] is True
+
+    upcoming2 = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert all(u["item"]["title"] != "Nộp báo cáo" for u in upcoming2)
+    events2 = client.get("/notebook-items/calendar-events",
+                          params={"year": due.year, "month": due.month}).json()
+    assert all(e["title"] != "Nộp báo cáo" for e in events2)
+
+    # Van con trong danh sach chung (Tien ich) de xem lai lich su - chi an
+    # khoi cac cho "sap toi", khong bi xoa.
+    still_listed = client.get("/notebook-items", params={"type": "task"}).json()
+    assert any(x["title"] == "Nộp báo cáo" and x["is_completed"] for x in still_listed)
+
+
 def test_personal_info_birthday_reminder_default_on(client):
     """remind_birthday defaults to True - Ngày sinh của Thông tin cá nhân tự
     động lên danh sách nhắc nhở, giống type=birthday."""

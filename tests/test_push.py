@@ -14,7 +14,40 @@ from datetime import date, timedelta
 from unittest.mock import patch
 
 from app.api.routes import push as push_routes
+from app.schemas.notebook_item import NotebookItemRead, UpcomingReminder
 from app.services import push_service
+
+
+def _reminder(item_type: str, title: str, days_until: int) -> UpcomingReminder:
+    item = NotebookItemRead(id=1, type=item_type, title=title)
+    return UpcomingReminder(item=item, occurs_on=date.today(), days_until=days_until)
+
+
+def test_notification_phrasing_is_contextual_per_event_type():
+    # Sinh nhật hôm nay: giọng vui mừng, có icon 🎂, nhắc "sinh nhật".
+    title, body = push_service._format_notification([_reminder("birthday", "Bố", 0)])
+    assert title == "🎂 Bố"
+    assert "sinh nhật" in body.lower()
+
+    # Ngày giỗ: trang trọng, không lẫn với sinh nhật.
+    title, body = push_service._format_notification([_reminder("anniversary", "Ông nội", 1)])
+    assert title == "🕯️ Ông nội"
+    assert "giỗ" in body.lower()
+
+    # Nhắc việc: icon 📝, câu văn thực tế ("hạn"/"hoàn thành").
+    title, body = push_service._format_notification([_reminder("task", "Nộp báo cáo", 2)])
+    assert title == "📝 Nộp báo cáo"
+    assert "còn 2 ngày" in body.lower()
+
+
+def test_notification_title_prioritizes_birthday_when_mixed():
+    reminders = [
+        _reminder("task", "Đóng tiền điện", 1),
+        _reminder("birthday", "Mẹ", 2),
+    ]
+    title, body = push_service._format_notification(reminders)
+    assert title == "🎂 Vài điều đặc biệt sắp tới"
+    assert "Mẹ" in body and "Đóng tiền điện" in body
 
 
 def _make_endpoint_payload(endpoint="https://push.example.com/ep1"):

@@ -140,6 +140,20 @@ class NotebookItem(Base):
                 "bản ghi 'Sinh nhật' riêng cho người này để tránh nhắc trùng.",
     )
 
+    # -- type=task field (Nhắc việc) --
+    # Đánh dấu việc đã xong. Chỉ có ý nghĩa với type=task - một khi True,
+    # notebook_item_service.get_upcoming()/get_calendar_events() bỏ qua hẳn
+    # dòng này (không hiện ở Dashboard, không còn vào danh sách tính lịch),
+    # và app/services/push_service.py (dùng lại get_upcoming) vì vậy cũng tự
+    # động ngừng gửi thông báo nhắc cho việc đó - không cần xử lý gì thêm ở
+    # đó. Việc đã hoàn thành vẫn còn nguyên trong danh sách "Tiện ích" (Cấu
+    # hình) để xem lại lịch sử, chỉ ẩn khỏi các chỗ "sắp tới".
+    is_completed: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="Chỉ áp dụng cho type=task: True = việc đã xong, ẩn khỏi "
+                "Dashboard/lịch/thông báo nhắc (get_upcoming bỏ qua hẳn).",
+    )
+
     # -- custom (non-default) type fields --
     # "Thông tin" - generic free-text content field for custom notebook
     # types (distinct from `note`, which is for supplementary remarks). Also

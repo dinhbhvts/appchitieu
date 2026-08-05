@@ -125,7 +125,9 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
         auto-recomputed from recurrence_days (keeps the logic simple; the
         user updates date2 by hand after renewing, same as before).
       - task ("Tạo nhắc việc"): date2 ("Ngày cần hoàn thành") if it falls in
-        the window - same one-off due-date handling as service/maintenance.
+        the window - same one-off due-date handling as service/maintenance,
+        EXCEPT a task with is_completed=True is skipped entirely regardless
+        of its due date (đã xong thì thôi không còn "sắp tới" nữa).
 
     Other types (address, account, note, child_milestone, custom types) have
     no natural "upcoming" concept and are not included.
@@ -135,6 +137,12 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
     reminders: list[UpcomingReminder] = []
 
     for item in repo.list_all(db):
+        # Viec (task) da danh dau hoan thanh: bo qua han - khong con la
+        # "sap toi" nua. Ap dung o day (nguon chung cho ca Dashboard va
+        # push_service.send_daily_reminders) nen chi can sua 1 cho la ca
+        # hai tu dong ngung nhac.
+        if item.type == "task" and item.is_completed:
+            continue
         is_birthday_reminder = (
             item.type in _YEARLY_RECURRING_TYPES
             or (item.type == "personal_info" and item.remind_birthday)
@@ -220,7 +228,7 @@ def get_calendar_events(db: Session, year: int, month: int) -> list[CalendarEven
             )
             if occurs_on:
                 events.append(CalendarEvent(date=occurs_on, category="anniversary", title=item.title))
-        elif item.type == "task" and item.date2:
+        elif item.type == "task" and item.date2 and not item.is_completed:
             if month_start <= item.date2 <= month_end:
                 events.append(CalendarEvent(date=item.date2, category="task", title=item.title))
 

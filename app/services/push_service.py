@@ -13,10 +13,19 @@ Two jobs:
      `settings.push_reminder_days` (default 3) days - sent every day the
      window still contains that event, which is the "nhắc hàng ngày trong
      vòng 3 ngày" behavior the user asked for (not a one-time ping).
+
+The notification text itself is picked CONTEXTUALLY, not a single generic
+template - see the phrase pools below _format_notification(). A birthday
+reads warm/celebratory, a ngày giỗ reads respectful, a task/due-date reads
+practical-but-friendly, and the exact sentence varies by how many days are
+left (hôm nay / ngày mai / N ngày nữa) with a few random variants each so it
+doesn't read identically day after day. The intent is for this to feel like
+a family member nudging you, not a system alert.
 """
 
 import json
 import logging
+import random
 
 from sqlalchemy.orm import Session
 
@@ -28,6 +37,66 @@ from app.services.notebook_item_service import get_upcoming
 
 logger = logging.getLogger("vibeapp.push")
 settings = get_settings()
+
+# Câu chữ theo TỪNG NGỮ CẢNH: loại sự kiện (sinh nhật / ngày giỗ / nhắc việc
+# / dịch vụ-bảo trì) x số ngày còn lại (hôm nay / ngày mai / 2-3 ngày nữa).
+# Mục tiêu là để thông báo đọc như một người thân đang nhắc khéo, không phải
+# một dòng log hệ thống - "Còn 2 ngày nữa" đọc giống nhau dù là sinh nhật hay
+# hạn nộp báo cáo thì rất máy móc, còn giọng "chúc mừng"/"kịp chuẩn bị"/trang
+# trọng cho ngày giỗ mới đúng CẢM XÚC của từng loại. Mỗi ô có vài biến thể,
+# chọn ngẫu nhiên mỗi lần gửi để không lặp lại y hệt ngày này qua ngày khác.
+_BIRTHDAY_PHRASES = {
+    0: [
+        "🎉 Hôm nay là sinh nhật {title}! Đừng quên gửi một lời chúc thật ấm áp.",
+        "🎂 Chúc mừng sinh nhật {title} hôm nay - một ngày đáng để cả nhà quây quần.",
+    ],
+    1: [
+        "🎂 Ngày mai là sinh nhật {title} rồi - đã nghĩ ra món quà nho nhỏ chưa?",
+        "🎁 Còn 1 ngày nữa là đến sinh nhật {title}, kịp chuẩn bị một bất ngờ nhé.",
+    ],
+    "default": [
+        "🎂 Còn {days} ngày nữa là đến sinh nhật {title}.",
+        "🎂 Sinh nhật {title} đang đến gần - còn {days} ngày nữa thôi.",
+    ],
+}
+_ANNIVERSARY_PHRASES = {
+    0: [
+        "🕯️ Hôm nay là ngày giỗ {title}. Cả nhà mình cùng tưởng nhớ nhé.",
+    ],
+    1: [
+        "🕯️ Ngày mai là ngày giỗ {title} - kịp thu xếp thời gian chuẩn bị.",
+    ],
+    "default": [
+        "🕯️ Còn {days} ngày nữa là đến ngày giỗ {title}.",
+        "🕯️ Ngày giỗ {title} sắp tới, còn {days} ngày để chuẩn bị chu đáo.",
+    ],
+}
+_TASK_PHRASES = {
+    0: [
+        "⏰ Hôm nay là hạn cho việc: {title} - cố lên nhé!",
+        "⏰ Đến hạn hôm nay rồi: {title}.",
+    ],
+    1: [
+        "📝 Ngày mai đến hạn: {title}. Còn kịp thu xếp đấy.",
+        "📝 Còn 1 ngày để hoàn thành: {title}.",
+    ],
+    "default": [
+        "📝 Còn {days} ngày nữa đến hạn: {title}.",
+        "📝 {title} - còn {days} ngày nữa là tới hạn, đừng để dồn việc nhé.",
+    ],
+}
+_DUE_PHRASES = {  # service / maintenance (dich vu, bao tri)
+    0: [
+        "🔧 Hôm nay đến hạn: {title}.",
+    ],
+    1: [
+        "🔧 Ngày mai đến hạn: {title} - tranh thủ xử lý sớm nhé.",
+    ],
+    "default": [
+        "🔧 Còn {days} ngày nữa đến hạn: {title}.",
+    ],
+}
+_BIRTHDAY_TYPES = ("birthday", "personal_info")
 
 
 def is_configured() -> bool:
@@ -53,23 +122,67 @@ def unsubscribe(db: Session, endpoint: str) -> bool:
     return repo.delete_by_endpoint(db, endpoint)
 
 
+def _icon_and_pool(item_type: str) -> tuple[str, dict]:
+    if item_type in _BIRTHDAY_TYPES:
+        return "🎂", _BIRTHDAY_PHRASES
+    if item_type == "anniversary":
+        return "🕯️", _ANNIVERSARY_PHRASES
+    if item_type == "task":
+        return "📝", _TASK_PHRASES
+    return "🔧", _DUE_PHRASES  # service / maintenance
+
+
+def _sentence_for(reminder: UpcomingReminder) -> tuple[str, str]:
+    """(icon, câu văn) cho một sự kiện, chọn ngẫu nhiên trong nhóm phù hợp
+    loại sự kiện + số ngày còn lại - xem bảng phrase ở đầu file."""
+    icon, pool = _icon_and_pool(reminder.item.type)
+    choices = pool.get(reminder.days_until, pool["default"])
+    sentence = random.choice(choices).format(
+        title=reminder.item.title, days=reminder.days_until,
+    )
+    return icon, sentence
+
+
+def _short_days_phrase(days: int) -> str:
+    if days == 0:
+        return "hôm nay"
+    if days == 1:
+        return "ngày mai"
+    return f"còn {days} ngày"
+
+
 def _format_notification(reminders: list[UpcomingReminder]) -> tuple[str, str]:
     """Build (title, body) for one push notification out of today's list of
     upcoming reminders - one combined notification per day rather than one
-    per event, so a busy 3-day window doesn't spam multiple pushes at once."""
+    per event, so a busy 3-day window doesn't spam multiple pushes at once.
+
+    Phrasing is picked per-event based on its TYPE and how many days are
+    left (see the phrase pools above), so the notification reads like a
+    family member gently nudging you - warm for a birthday, respectful for
+    a ngày giỗ, practical-but-friendly for a task/due date - instead of one
+    flat "Còn N ngày nữa" line regardless of what's actually coming up.
+    """
     if len(reminders) == 1:
         r = reminders[0]
-        title = f"🔔 {r.item.title}"
-        body = "Hôm nay!" if r.days_until == 0 else f"Còn {r.days_until} ngày nữa"
-        return title, body
+        icon, sentence = _sentence_for(r)
+        title = f"{icon} {r.item.title}"
+        return title, sentence
 
-    title = f"🔔 {len(reminders)} sự kiện sắp tới"
+    has_birthday = any(r.item.type in _BIRTHDAY_TYPES for r in reminders)
+    has_anniversary = any(r.item.type == "anniversary" for r in reminders)
+    if has_birthday:
+        title = "🎂 Vài điều đặc biệt sắp tới"
+    elif has_anniversary:
+        title = "🕯️ Vài điều cần nhớ sắp tới"
+    else:
+        title = f"📝 {len(reminders)} việc sắp tới trong nhà"
+
     lines = []
     for r in reminders[:6]:
-        when = "hôm nay" if r.days_until == 0 else f"{r.days_until} ngày nữa"
-        lines.append(f"• {r.item.title} ({when})")
+        icon, _ = _sentence_for(r)
+        lines.append(f"{icon} {r.item.title} - {_short_days_phrase(r.days_until)}")
     if len(reminders) > 6:
-        lines.append(f"… và {len(reminders) - 6} mục khác")
+        lines.append(f"… và {len(reminders) - 6} việc khác")
     return title, "\n".join(lines)
 
 
