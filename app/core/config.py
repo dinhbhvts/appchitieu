@@ -63,6 +63,30 @@ class Settings(BaseSettings):
     google_oauth_refresh_token: str = ""
     google_drive_folder_id: str = ""
 
+    # Web Push (thông báo nhắc sự kiện sắp tới - xem app/services/push_service.py).
+    # VAPID key pair identifies THIS server to the browser's push service
+    # (FCM/APNs); generate once with `python -m scripts.generate_vapid_keys`
+    # and set both as env vars in production - see TRIEN_KHAI.md mục 7. The
+    # public key is safe to expose (served via GET /push/vapid-public-key);
+    # the private key must stay secret. Empty = push notifications disabled
+    # (subscribe/send just no-op with a clear error), everything else in the
+    # app still works.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    # Contact email required by the Web Push protocol (RFC 8292 "sub"
+    # claim) - shown to browser vendors only if they need to contact the
+    # server owner about abuse; not shown to the end user.
+    vapid_claim_email: str = "admin@example.com"
+    # Shared secret the daily GitHub Actions workflow sends in the
+    # "X-Cron-Secret" header to POST /push/run-daily - that endpoint has no
+    # logged-in user (it's a server-to-server call), so this is its only
+    # gate. MUST be overridden in production (empty = endpoint refuses every
+    # call, so an unset secret fails closed, not open).
+    notify_cron_secret: str = ""
+    # How many days ahead counts as "sắp tới" for the daily reminder push
+    # (matches the user's request: "trong vòng 3 ngày sắp có sự kiện").
+    push_reminder_days: int = 3
+
     # Tell pydantic to read a ".env" file sitting next to where we run the app.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

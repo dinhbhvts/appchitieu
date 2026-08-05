@@ -29,6 +29,7 @@ from app.api.routes import (
     notebook_attachments,
     notebook_items,
     notebook_types,
+    push,
     reports,
     savings,
     stocks,
@@ -122,6 +123,10 @@ def health_check():
 # (only names - needed by the login screen to offer a picker).
 app.include_router(auth.router)
 app.include_router(users.router)
+# /push/run-daily: no user login (called by the daily GitHub Actions cron
+# job) - it authenticates itself with the X-Cron-Secret header instead, see
+# app/api/routes/push.py.
+app.include_router(push.cron_router)
 
 # Protected endpoints: every data route requires a valid login token.
 _auth = [Depends(get_current_user)]
@@ -130,6 +135,7 @@ app.include_router(categories.router, dependencies=_auth)
 app.include_router(notebook_items.router, dependencies=_auth)
 app.include_router(notebook_attachments.router, dependencies=_auth)
 app.include_router(notebook_types.router, dependencies=_auth)
+app.include_router(push.router, dependencies=_auth)
 app.include_router(lunar.router, dependencies=_auth)
 app.include_router(transactions.router, dependencies=_auth)
 app.include_router(stocks.router, dependencies=_auth)

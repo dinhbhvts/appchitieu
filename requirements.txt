@@ -25,6 +25,9 @@ cryptography>=43.0
 # Lich am duong (quy doi ngay gio - dung cho sinh nhat/ngay gio am lich)
 lunarcalendar>=0.0.9
 
+# Thong bao push tren dien thoai (nhac su kien sap toi - Web Push/VAPID)
+pywebpush>=2.0
+
 # Upload file dinh kem (Ho so tien ich > Thong tin ca nhan) len Google Drive
 # cua chu app, qua Service Account (khong can dang nhap OAuth tuong tac).
 google-api-python-client>=2.150
