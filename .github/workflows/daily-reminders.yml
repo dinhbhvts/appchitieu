@@ -1,0 +1,27 @@
+name: Thông báo nhắc sự kiện hàng ngày
+
+# Gọi POST /push/run-daily trên backend Render mỗi ngày - Render free tier
+# không có cron riêng và "ngủ" khi không ai dùng, nên cần một thứ bên ngoài
+# đánh thức + kích hoạt việc gửi thông báo giúp. Xem TRIEN_KHAI.md mục 7.
+#
+# Cần khai báo trước 2 Repository secret (Settings > Secrets and variables >
+# Actions):
+#   VIBEAPP_BACKEND_URL  = địa chỉ backend, vd https://vibeapp-xxx.onrender.com
+#   VIBEAPP_CRON_SECRET  = phải giống hệt biến NOTIFY_CRON_SECRET đã đặt trên Render
+
+on:
+  schedule:
+    # 01:00 UTC = 08:00 sáng giờ Việt Nam (UTC+7).
+    - cron: "0 1 * * *"
+  workflow_dispatch: {} # cho phép bấm "Run workflow" để thử tay trên GitHub
+
+jobs:
+  run-daily:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gọi /push/run-daily (chờ Render thức dậy nếu đang ngủ)
+        run: |
+          curl --fail --show-error --silent \
+            --max-time 240 \
+            -X POST "${{ secrets.VIBEAPP_BACKEND_URL }}/push/run-daily" \
+            -H "X-Cron-Secret: ${{ secrets.VIBEAPP_CRON_SECRET }}"
