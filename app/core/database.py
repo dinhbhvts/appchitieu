@@ -23,8 +23,22 @@ connect_args = (
     else {}
 )
 
-# The engine is the actual pool of database connections. Created once, reused.
-engine = create_engine(settings.database_url, connect_args=connect_args)
+# pool_pre_ping: before handing out a pooled connection, run a cheap "is this
+# still alive?" check and silently reconnect if not. Without this, the FIRST
+# query after the app has been idle for a while fails with
+# "SSL connection has been closed unexpectedly" - Neon (and Render's free
+# tier sleep/wake cycle) closes idle connections server-side, but the pool
+# doesn't know that until it actually tries to use one. This bit us on the
+# daily cron job (backend asleep for hours -> wakes up -> first query on a
+# stale pooled connection blows up; a retry right after succeeds because the
+# dead connection got discarded). pool_recycle proactively retires
+# connections older than 5 minutes so pre_ping has to reconnect less often.
+# Both are no-ops for SQLite (single local file, nothing to go stale).
+pool_kwargs = (
+    {} if settings.database_url.startswith("sqlite")
+    else {"pool_pre_ping": True, "pool_recycle": 300}
+)
+engine = create_engine(settings.database_url, connect_args=connect_args, **pool_kwargs)
 
 # A factory that hands out new Session objects. A Session is one "unit of work":
 # you open it, run queries/inserts inside it, then commit or roll back.
