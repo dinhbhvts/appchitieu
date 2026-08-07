@@ -114,8 +114,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/", tags=["health"])
+@app.get("/health", tags=["health"])
 def health_check():
-    """Simple endpoint to confirm the server is alive."""
+    """Simple endpoint to confirm the server is alive.
+
+    Exposed at both "/" and "/health" - the latter is what external wake-up
+    pings (e.g. a cron-job.org job hit before /push/run-daily, to wake a
+    sleeping Render free-tier instance without touching the cron-secret
+    protected notify endpoint) should call, since it's a conventional path
+    name and avoids any ambiguity from hitting "/" instead.
+    """
     return {"status": "ok", "app": settings.app_name}
 
 
