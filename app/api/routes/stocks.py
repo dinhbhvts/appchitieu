@@ -149,7 +149,10 @@ def add_holding(payload: HoldingCreate, db: Session = Depends(get_db),
 def update_holding(hid: int, payload: HoldingUpdate, db: Session = Depends(get_db),
                    current: User = Depends(get_current_user)):
     """Edit a holding."""
-    row = service.update_holding(db, hid, payload, actor_id=current.id)
+    try:
+        row = service.update_holding(db, hid, payload, actor_id=current.id)
+    except service.CashHoldingLockedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy khoản đang giữ")
     return row
@@ -158,7 +161,11 @@ def update_holding(hid: int, payload: HoldingUpdate, db: Session = Depends(get_d
 @router.delete("/holdings/{hid}", response_model=Message)
 def delete_holding(hid: int, db: Session = Depends(get_db)):
     """Delete a holding."""
-    if not service.delete_holding(db, hid):
+    try:
+        deleted = service.delete_holding(db, hid)
+    except service.CashHoldingLockedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not deleted:
         raise HTTPException(status_code=404, detail="Không tìm thấy khoản đang giữ")
     return Message(detail="Đã xóa khoản đang giữ")
 

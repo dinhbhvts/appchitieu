@@ -112,11 +112,23 @@ def get_holding(db: Session, hid: int) -> StockHolding | None:
 
 
 def list_holdings(db: Session, user_id: int | None = None) -> list[StockHolding]:
+    # is_cash.desc() first: the auto "Tiền mặt" row always sorts to the top,
+    # regardless of where "Tiền mặt" would otherwise land alphabetically.
     stmt = select(StockHolding).where(StockHolding.is_deleted.is_(False))
     if user_id is not None:
         stmt = stmt.where(StockHolding.user_id == user_id)
-    stmt = stmt.order_by(StockHolding.symbol.asc())
+    stmt = stmt.order_by(StockHolding.is_cash.desc(), StockHolding.symbol.asc())
     return list(db.scalars(stmt).all())
+
+
+def get_cash_holding(db: Session, user_id: int) -> StockHolding | None:
+    """The auto-computed "Tiền mặt" row for one person, if it exists yet."""
+    stmt = select(StockHolding).where(
+        StockHolding.is_deleted.is_(False),
+        StockHolding.user_id == user_id,
+        StockHolding.is_cash.is_(True),
+    )
+    return db.scalars(stmt).first()
 
 
 def update_holding(db: Session, row: StockHolding, changes: dict) -> StockHolding:

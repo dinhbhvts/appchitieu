@@ -151,9 +151,32 @@ class StockHolding(Base):
     value: Mapped[float] = mapped_column(
         Numeric(18, 0), nullable=False,
         comment="Giá trị hiện tại (VNĐ) của phần đang giữ - người dùng tự "
-                "nhập tay theo giá thị trường, KHÔNG tự động cập nhật.",
+                "nhập tay theo giá thị trường, KHÔNG tự động cập nhật. "
+                "NGOẠI LỆ: nếu is_cash=True, cột này do hệ thống TỰ TÍNH "
+                "(xem cash_base_value bên dưới), không nhận sửa tay.",
     )
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # The one auto-computed row per user: "Tiền mặt" (số dư tiền mặt chưa
+    # đầu tư trong tài khoản CK). At most one is_cash=True row per user_id,
+    # enforced in stock_service (no DB constraint - same convention as
+    # AssetSnapshot.system_key, see asset_service._ensure_system_items).
+    is_cash: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+        comment="True = dòng 'Tiền mặt' do hệ thống tự tạo và tự tính giá "
+                "trị (value = cash_base_value + tổng phát sinh từ nạp/rút/"
+                "mua/bán/cổ tức, xem stock_service._cash_delta) - không phải "
+                "khoản CK nhập tay bình thường. Không được sửa symbol/"
+                "quantity/value/user_id của dòng này qua API (xem "
+                "stock_service.update_holding).",
+    )
+    cash_base_value: Mapped[float] = mapped_column(
+        Numeric(18, 0), default=0, nullable=False,
+        comment="Chỉ có ý nghĩa khi is_cash=True: giá trị khởi tạo người "
+                "dùng tự nhập (vd số dư tiền mặt sẵn có trước khi bắt đầu "
+                "dùng app) - đây là TRƯỜNG DUY NHẤT của dòng Tiền mặt được "
+                "phép sửa tay, value sẽ tự cộng thêm phần phát sinh sau đó.",
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()

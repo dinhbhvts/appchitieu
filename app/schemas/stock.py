@@ -78,6 +78,7 @@ class StockSummary(BaseModel):
     invested_capital: float     # cum_deposit - cum_withdraw (von rong)
     total_dividend: float = 0   # tong co tuc da nhan luy ke den cuoi ky
     total_realised_pl: float    # sum of realised profit/loss across symbols
+    total_holdings_value: float = 0  # tong gia tri danh muc dang giu (gom Tien mat)
     positions: list[SymbolPosition]
 
 
@@ -93,17 +94,35 @@ class HoldingCreate(BaseModel):
 
 class HoldingRead(HoldingCreate):
     id: int
+    # Overrides HoldingCreate.value (which requires > 0 - fine for a
+    # hand-typed holding, but the auto "Tiền mặt" row can legitimately read
+    # 0 or, if withdrawals ever outpace deposits, negative).
+    value: float
+    # is_cash/cash_base_value: see StockHolding model docstring - the one
+    # auto-computed "Tiền mặt" row per person has is_cash=True, and its
+    # `value` is server-computed (cash_base_value + all deposit/withdraw/
+    # buy/sell/dividend activity), not the user-typed number a normal
+    # holding's `value` is.
+    is_cash: bool = False
+    cash_base_value: float = 0
     model_config = ConfigDict(from_attributes=True)
 
 
 class HoldingUpdate(BaseModel):
-    """Edit a holding. All fields optional."""
+    """Edit a holding. All fields optional.
+
+    For the auto-computed "Tiền mặt" row (is_cash=True), only cash_base_value
+    and note may be set - symbol/quantity/value/user_id are system-managed
+    and the service layer rejects attempts to change them (see
+    stock_service.update_holding / CashHoldingLockedError).
+    """
 
     symbol: str | None = None
     quantity: int | None = Field(default=None, ge=0)
     value: float | None = Field(default=None, gt=0)
     user_id: int | None = None
     note: str | None = None
+    cash_base_value: float | None = None
 
 
 class DividendCreate(BaseModel):

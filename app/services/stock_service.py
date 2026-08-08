@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.enums import CashFlowType, TradeSide
 from app.repositories import stock_repository as repo
+from app.repositories import user_repository
 from app.schemas.stock import (
     CashFlowCreate,
     DividendCreate,
@@ -28,6 +29,11 @@ from app.schemas.stock import (
     TradeCreate,
     TradeUpdate,
 )
+
+
+class CashHoldingLockedError(Exception):
+    """Raised when the caller tries to edit/delete a system-managed field of
+    the auto-computed "Tiền mặt" holding row (see StockHolding.is_cash)."""
 
 
 def create_cashflow(db: Session, payload: CashFlowCreate, actor_id=None):
@@ -266,13 +272,17 @@ def summary(db: Session, user_id: int | None = None,
     # This is additive, so the combined view equals husband + wife, and it does
     # not depend on the (incomplete) buy/sell log.
     #
-    # Dividends (cổ tức) are DELIBERATELY NOT part of this formula. The user
-    # manually adjusts "Đang giữ" (StockHolding.value) at month-end, and that
-    # hand-entered number already accounts for any dividend received - adding
-    # dividends here too would double-count them. total_dividend below is
-    # purely a record-keeping stat for display, not an input to the P&L.
+    # Dividends (cổ tức) are DELIBERATELY NOT part of this formula for
+    # STOCK holdings - the user manually adjusts non-cash "Đang giữ" rows at
+    # month-end, and that hand-entered number already accounts for any
+    # dividend received, so folding dividends into the P&L formula again
+    # would double-count them. The auto "Tiền mặt" row is the one exception:
+    # it DOES fold dividends straight in (see _cash_delta), because nobody
+    # hand-adjusts it - that is exactly what makes it auto-computed.
+    # total_dividend below is still a record-keeping stat for display, not a
+    # second input to the P&L on top of what's already inside holdings_value.
     holdings_value = sum(
-        float(h.value) for h in repo.list_holdings(db, user_id=user_id)
+        float(h.value) for h in list_holdings(db, user_id=user_id)
     )
     dividends = repo.list_dividends(db, user_id=user_id)
     if end is not None:
@@ -288,6 +298,7 @@ def summary(db: Session, user_id: int | None = None,
         invested_capital=cum_deposit - cum_withdraw,
         total_dividend=round(cum_dividend, 0),
         total_realised_pl=round(total_pl, 0),
+        total_holdings_value=round(holdings_value, 0),
         positions=[],
     )
 
@@ -302,10 +313,63 @@ def list_trades(db: Session, user_id: int | None = None):
     return repo.list_trades(db, user_id=user_id)
 
 
-# --- Manual holdings ------------------------------------------------------
+# --- Manual holdings + the auto "Tiền mặt" row -----------------------------
+#
+# "Tiền mặt" (is_cash=True) is the account's un-invested cash balance - money
+# that has been nạp but not yet mua, or rút but not yet withdrawn from the
+# holdings total. Before this existed, that money simply had no home in the
+# Đang giữ list, so a user who deposited 100tr but only bought 80tr of stock
+# would show 20tr as if it had vanished from total_realised_pl. The row is
+# entirely system-computed except for one seed number the user may type in
+# by hand (cash_base_value - e.g. cash they already held before adopting the
+# app); see the StockHolding model docstring for the exact formula.
+
+def _cash_delta(db: Session, user_id: int) -> float:
+    """Net cash effect of every deposit/withdraw/buy/sell/dividend recorded
+    for one person, all-time (not date-filtered - matches how holdings_value
+    itself is a current-state number, not scoped to a period)."""
+    delta = 0.0
+    for cf in repo.list_cashflows(db, user_id=user_id):
+        amount = float(cf.amount)
+        delta += amount if cf.type == CashFlowType.deposit else -amount
+    for t in repo.list_trades(db, user_id=user_id):
+        qty, price, fee = int(t.quantity), float(t.price), float(t.fee)
+        if t.side == TradeSide.buy:
+            delta -= qty * price + fee
+        else:  # sell
+            delta += qty * price - fee
+    for d in repo.list_dividends(db, user_id=user_id):
+        if d.amount is not None:
+            delta += float(d.amount)
+    return delta
+
+
+def _ensure_cash_holding(db: Session, user_id: int):
+    """Get-or-create the "Tiền mặt" row for one person and refresh its value
+    to cash_base_value + _cash_delta(...). Called every time holdings are
+    listed (see list_holdings), so it's always current - same "recompute on
+    every read" convention as asset_service._ensure_system_items."""
+    row = repo.get_cash_holding(db, user_id)
+    if row is None:
+        row = repo.create_holding(db, {
+            "user_id": user_id, "symbol": "Tiền mặt", "quantity": 0,
+            "value": 0, "is_cash": True, "cash_base_value": 0,
+        })
+    value = round(float(row.cash_base_value) + _cash_delta(db, user_id), 0)
+    if float(row.value) != value:
+        row = repo.update_holding(db, row, {"value": value})
+    return row
+
 
 def list_holdings(db: Session, user_id: int | None = None):
-    """Manually-entered holdings (optionally for one person)."""
+    """Manually-entered holdings (optionally for one person), plus the
+    auto-computed "Tiền mặt" row(s) - refreshed first so callers always see
+    an up-to-date value."""
+    if user_id is not None:
+        _ensure_cash_holding(db, user_id)
+    else:
+        for u in user_repository.list_all(db):
+            _ensure_cash_holding(db, u.id)
     return repo.list_holdings(db, user_id=user_id)
 
 
@@ -316,11 +380,31 @@ def create_holding(db: Session, payload: HoldingCreate, actor_id=None):
     return repo.create_holding(db, data)
 
 
+# Fields allowed to change on the auto "Tiền mặt" row - everything else
+# (symbol/quantity/value/user_id) is system-managed.
+_CASH_ROW_EDITABLE_FIELDS = {"cash_base_value", "note"}
+
+
 def update_holding(db: Session, hid: int, payload: HoldingUpdate, actor_id=None):
     row = repo.get_holding(db, hid)
     if row is None:
         return None
     changes = payload.model_dump(exclude_unset=True)
+    if row.is_cash:
+        locked = set(changes) - _CASH_ROW_EDITABLE_FIELDS
+        if locked:
+            raise CashHoldingLockedError(
+                "Dòng 'Tiền mặt' do hệ thống tự tính, chỉ có thể sửa 'Giá "
+                "trị khởi tạo' hoặc ghi chú."
+            )
+        changes["updated_by"] = actor_id
+        row = repo.update_holding(db, row, changes)
+        # Re-apply the formula immediately so the response already reflects
+        # the new base value, instead of waiting for the next list_holdings.
+        value = round(float(row.cash_base_value) + _cash_delta(db, row.user_id), 0)
+        if float(row.value) != value:
+            row = repo.update_holding(db, row, {"value": value})
+        return row
     if "symbol" in changes and changes["symbol"]:
         changes["symbol"] = changes["symbol"].strip().upper()
     changes["updated_by"] = actor_id
@@ -331,5 +415,9 @@ def delete_holding(db: Session, hid: int) -> bool:
     row = repo.get_holding(db, hid)
     if row is None:
         return False
+    if row.is_cash:
+        raise CashHoldingLockedError(
+            "Không thể xóa dòng 'Tiền mặt' tự động."
+        )
     repo.delete_holding(db, row)
     return True
