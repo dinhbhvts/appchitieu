@@ -320,42 +320,81 @@ def list_trades(db: Session, user_id: int | None = None):
 # holdings total. Before this existed, that money simply had no home in the
 # Đang giữ list, so a user who deposited 100tr but only bought 80tr of stock
 # would show 20tr as if it had vanished from total_realised_pl. The row is
-# entirely system-computed except for one seed number the user may type in
-# by hand (cash_base_value - e.g. cash they already held before adopting the
-# app); see the StockHolding model docstring for the exact formula.
+# entirely system-computed EXCEPT cash_base_value, which the user may
+# overwrite any time to match the real balance they observe (e.g. checking
+# the actual brokerage app) - see the StockHolding model docstring. Editing
+# it also stamps the cash_sync_*_id watermarks to the current max id of each
+# table, so the auto formula only adds rows recorded AFTER that moment -
+# otherwise every edit would get the ENTIRE history added back on top of the
+# number just typed in. Watermarks use ids (not a timestamp) because
+# SQLite's CURRENT_TIMESTAMP (used for these tables' created_at) only has
+# SECOND precision, so two requests landing in the same second could compare
+# out of order - ids are strictly monotonic, no such ambiguity.
 
-def _cash_delta(db: Session, user_id: int) -> float:
-    """Net cash effect of every deposit/withdraw/buy/sell/dividend recorded
-    for one person, all-time (not date-filtered - matches how holdings_value
-    itself is a current-state number, not scoped to a period)."""
+def _cash_delta(
+    db: Session, user_id: int,
+    since_cashflow_id: int = 0, since_trade_id: int = 0,
+    since_dividend_id: int = 0,
+) -> float:
+    """Net cash effect of deposit/withdraw/buy/sell/dividend rows recorded
+    for one person, with id STRICTLY GREATER than the matching watermark
+    (0 = no watermark yet, every row counts)."""
     delta = 0.0
     for cf in repo.list_cashflows(db, user_id=user_id):
+        if cf.id <= since_cashflow_id:
+            continue
         amount = float(cf.amount)
         delta += amount if cf.type == CashFlowType.deposit else -amount
     for t in repo.list_trades(db, user_id=user_id):
+        if t.id <= since_trade_id:
+            continue
         qty, price, fee = int(t.quantity), float(t.price), float(t.fee)
         if t.side == TradeSide.buy:
             delta -= qty * price + fee
         else:  # sell
             delta += qty * price - fee
     for d in repo.list_dividends(db, user_id=user_id):
+        if d.id <= since_dividend_id:
+            continue
         if d.amount is not None:
             delta += float(d.amount)
     return delta
 
 
+def _current_max_ids(db: Session, user_id: int) -> tuple[int, int, int]:
+    """Highest id currently in each of the 3 tables for one person - used to
+    stamp the cash_sync_*_id watermarks when the user reconciles the cash
+    row, so only rows added AFTER this moment count towards future deltas."""
+    def _max_id(rows) -> int:
+        ids = [r.id for r in rows]
+        return max(ids) if ids else 0
+
+    return (
+        _max_id(repo.list_cashflows(db, user_id=user_id)),
+        _max_id(repo.list_trades(db, user_id=user_id)),
+        _max_id(repo.list_dividends(db, user_id=user_id)),
+    )
+
+
 def _ensure_cash_holding(db: Session, user_id: int):
     """Get-or-create the "Tiền mặt" row for one person and refresh its value
-    to cash_base_value + _cash_delta(...). Called every time holdings are
-    listed (see list_holdings), so it's always current - same "recompute on
-    every read" convention as asset_service._ensure_system_items."""
+    to cash_base_value + _cash_delta(since watermarks). Called every time
+    holdings are listed (see list_holdings), so it's always current - same
+    "recompute on every read" convention as
+    asset_service._ensure_system_items."""
     row = repo.get_cash_holding(db, user_id)
     if row is None:
         row = repo.create_holding(db, {
             "user_id": user_id, "symbol": "Tiền mặt", "quantity": 0,
             "value": 0, "is_cash": True, "cash_base_value": 0,
         })
-    value = round(float(row.cash_base_value) + _cash_delta(db, user_id), 0)
+    delta = _cash_delta(
+        db, user_id,
+        since_cashflow_id=row.cash_sync_cashflow_id,
+        since_trade_id=row.cash_sync_trade_id,
+        since_dividend_id=row.cash_sync_dividend_id,
+    )
+    value = round(float(row.cash_base_value) + delta, 0)
     if float(row.value) != value:
         row = repo.update_holding(db, row, {"value": value})
     return row
@@ -394,14 +433,30 @@ def update_holding(db: Session, hid: int, payload: HoldingUpdate, actor_id=None)
         locked = set(changes) - _CASH_ROW_EDITABLE_FIELDS
         if locked:
             raise CashHoldingLockedError(
-                "Dòng 'Tiền mặt' do hệ thống tự tính, chỉ có thể sửa 'Giá "
-                "trị khởi tạo' hoặc ghi chú."
+                "Dòng 'Tiền mặt' do hệ thống tự tính, chỉ có thể sửa số dư "
+                "thực tế hoặc ghi chú."
             )
+        # Stamp the reconciliation watermarks whenever the user overwrites
+        # the actual balance, so _cash_delta only adds rows recorded AFTER
+        # right now - otherwise every edit would get the entire prior
+        # history re-added on top of the number just typed in (looks like
+        # "edits don't save" - the value snaps back to something else).
+        if "cash_base_value" in changes:
+            cf_id, tr_id, dv_id = _current_max_ids(db, row.user_id)
+            changes["cash_sync_cashflow_id"] = cf_id
+            changes["cash_sync_trade_id"] = tr_id
+            changes["cash_sync_dividend_id"] = dv_id
         changes["updated_by"] = actor_id
         row = repo.update_holding(db, row, changes)
         # Re-apply the formula immediately so the response already reflects
         # the new base value, instead of waiting for the next list_holdings.
-        value = round(float(row.cash_base_value) + _cash_delta(db, row.user_id), 0)
+        delta = _cash_delta(
+            db, row.user_id,
+            since_cashflow_id=row.cash_sync_cashflow_id,
+            since_trade_id=row.cash_sync_trade_id,
+            since_dividend_id=row.cash_sync_dividend_id,
+        )
+        value = round(float(row.cash_base_value) + delta, 0)
         if float(row.value) != value:
             row = repo.update_holding(db, row, {"value": value})
         return row

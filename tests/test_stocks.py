@@ -243,6 +243,45 @@ def test_cash_holding_base_value_is_editable(client):
     assert r.json()["value"] == 2000000  # no other activity yet
 
 
+def test_editing_cash_after_prior_activity_does_not_double_count(client):
+    """Regression: sửa 'Tiền mặt' để khớp số dư thực tế phải LÀM value bằng
+    đúng số vừa nhập, không được cộng lại toàn bộ lịch sử giao dịch đã có từ
+    trước (bug báo cáo - "nhập vào nhưng không lưu được", thực ra là bị cộng
+    dồn lại giá trị cũ đè lên số vừa nhập)."""
+    user_id = client.get("/users").json()[0]["id"]
+
+    # Some activity recorded BEFORE the user ever reconciles the cash row.
+    client.post("/stocks/cashflows", json={
+        "date": "2026-03-01", "type": "deposit", "amount": 10000000,
+        "user_id": user_id,
+    })
+    holdings = client.get("/stocks/holdings", params={"user_id": user_id}).json()
+    cash = next(h for h in holdings if h["is_cash"])
+    assert cash["value"] == 10000000  # auto-computed from the deposit above
+    cash_id = cash["id"]
+
+    # User checks their real brokerage app: actual balance is 7,500,000 (they
+    # spent some outside this app, or the numbers just drifted). They type
+    # that in directly.
+    r = client.put(f"/stocks/holdings/{cash_id}", json={"cash_base_value": 7500000})
+    assert r.status_code == 200
+    # Must be EXACTLY what was typed - not 7.5M + the 10M already counted.
+    assert r.json()["value"] == 7500000
+    assert r.json()["cash_base_value"] == 7500000
+
+    # Re-fetching (which re-runs _ensure_cash_holding) must not drift either.
+    holdings = client.get("/stocks/holdings", params={"user_id": user_id}).json()
+    assert next(h for h in holdings if h["is_cash"])["value"] == 7500000
+
+    # A NEW deposit recorded after the reconciliation still auto-adjusts.
+    client.post("/stocks/cashflows", json={
+        "date": "2026-04-01", "type": "deposit", "amount": 1000000,
+        "user_id": user_id,
+    })
+    holdings = client.get("/stocks/holdings", params={"user_id": user_id}).json()
+    assert next(h for h in holdings if h["is_cash"])["value"] == 8500000
+
+
 def test_cash_holding_locks_system_fields(client):
     user_id = client.get("/users").json()[0]["id"]
     holdings = client.get("/stocks/holdings", params={"user_id": user_id}).json()

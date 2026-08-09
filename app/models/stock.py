@@ -172,10 +172,35 @@ class StockHolding(Base):
     )
     cash_base_value: Mapped[float] = mapped_column(
         Numeric(18, 0), default=0, nullable=False,
-        comment="Chỉ có ý nghĩa khi is_cash=True: giá trị khởi tạo người "
-                "dùng tự nhập (vd số dư tiền mặt sẵn có trước khi bắt đầu "
-                "dùng app) - đây là TRƯỜNG DUY NHẤT của dòng Tiền mặt được "
-                "phép sửa tay, value sẽ tự cộng thêm phần phát sinh sau đó.",
+        comment="Chỉ có ý nghĩa khi is_cash=True: số dư tiền mặt THỰC TẾ do "
+                "người dùng tự nhập mỗi khi đối chiếu (vd kiểm tra lại số dư "
+                "thật trong app công ty chứng khoán) - đây là TRƯỜNG DUY "
+                "NHẤT của dòng Tiền mặt được phép sửa tay. value = "
+                "cash_base_value + tổng phát sinh TỪ SAU mốc đối chiếu "
+                "(cash_sync_*_id bên dưới, không phải toàn bộ lịch sử) - nhờ "
+                "vậy sửa số này không bị cộng lại nhầm các giao dịch đã có "
+                "TỪ TRƯỚC lần đối chiếu, xem stock_service._cash_delta.",
+    )
+    # "Mốc đối chiếu" dùng ID tăng dần (không dùng mốc thời gian) vì
+    # CURRENT_TIMESTAMP trên SQLite chỉ có độ chính xác tới GIÂY - hai request
+    # (vd sửa cash_base_value rồi lập tức ghi thêm giao dịch mới) hoàn toàn có
+    # thể rơi vào cùng 1 giây, khiến so sánh theo thời gian bị sai thứ tự.
+    # id là serial tăng dần tuyệt đối, không có rủi ro này. 0 = chưa từng đối
+    # chiếu tay (tính từ đầu - vì id thật luôn bắt đầu từ 1).
+    cash_sync_cashflow_id: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False,
+        comment="Chỉ có ý nghĩa khi is_cash=True: chỉ cộng dồn StockCashFlow "
+                "có id LỚN HƠN giá trị này (0 = tính từ đầu).",
+    )
+    cash_sync_trade_id: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False,
+        comment="Chỉ có ý nghĩa khi is_cash=True: chỉ cộng dồn StockTrade "
+                "có id LỚN HƠN giá trị này (0 = tính từ đầu).",
+    )
+    cash_sync_dividend_id: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False,
+        comment="Chỉ có ý nghĩa khi is_cash=True: chỉ cộng dồn StockDividend "
+                "có id LỚN HƠN giá trị này (0 = tính từ đầu).",
     )
 
     created_at: Mapped[datetime] = mapped_column(
