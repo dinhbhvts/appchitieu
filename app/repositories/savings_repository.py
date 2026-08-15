@@ -42,6 +42,30 @@ def list_between(
     return list(db.scalars(stmt).all())
 
 
+def list_settled_between(
+    db: Session,
+    start: date_type | None = None,
+    end: date_type | None = None,
+    user_id: int | None = None,
+) -> list[SavingsDeposit]:
+    """Deposits with status=settled whose settled_date (ngày tất toán - KHÁC
+    start_date/ngày gửi mà list_between lọc theo) falls in [start, end] (both
+    optional), newest settled_date first - powers the "Các khoản tất toán"
+    card ở cuối tab Gửi tiết kiệm."""
+    stmt = select(SavingsDeposit).where(
+        SavingsDeposit.is_deleted.is_(False),
+        SavingsDeposit.status == SavingsStatus.settled,
+    )
+    if start is not None:
+        stmt = stmt.where(SavingsDeposit.settled_date >= start)
+    if end is not None:
+        stmt = stmt.where(SavingsDeposit.settled_date <= end)
+    if user_id is not None:
+        stmt = stmt.where(SavingsDeposit.user_id == user_id)
+    stmt = stmt.order_by(SavingsDeposit.settled_date.desc(), SavingsDeposit.id.desc())
+    return list(db.scalars(stmt).all())
+
+
 def list_unsettled(db: Session, user_id: int | None = None) -> list[SavingsDeposit]:
     """Deposits still active (chưa tất toán) - NOT filtered by any date range,
     per the "Các khoản tiết kiệm chưa tất toán" card's spec."""

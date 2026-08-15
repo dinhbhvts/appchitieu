@@ -172,6 +172,42 @@ def test_list_between_includes_active_and_settled(client):
     assert statuses["Đã tất toán"] == "settled"
 
 
+def test_list_settled_filters_by_settled_date_not_start_date(client):
+    """/savings/settled lọc theo settled_date (ngày tất toán) - KHÁC
+    /savings (list_between) vốn lọc theo start_date (ngày gửi). Một khoản mở
+    (gửi) ngoài khoảng tìm kiếm nhưng TẤT TOÁN trong khoảng đó vẫn phải xuất
+    hiện; một khoản đang active (chưa tất toán) không bao giờ xuất hiện dù
+    start_date rơi đúng khoảng."""
+    chong, _ = _users(client)
+    settled_in_range = client.post("/savings", json={
+        "name": "Tất toán tháng 3", "start_date": "2025-09-01", "amount": 40_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    }).json()
+    client.put(f"/savings/{settled_in_range['id']}", json={
+        "status": "settled", "settled_date": "2026-03-15", "actual_interest": 1_000_000,
+    })
+    settled_out_of_range = client.post("/savings", json={
+        "name": "Tất toán tháng 2", "start_date": "2025-08-01", "amount": 20_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    }).json()
+    client.put(f"/savings/{settled_out_of_range['id']}", json={
+        "status": "settled", "settled_date": "2026-02-01", "actual_interest": 500_000,
+    })
+    still_active = client.post("/savings", json={
+        # start_date roi dung khoang tim kiem nhung chua tat toan.
+        "name": "Đang gửi trong tháng 3", "start_date": "2026-03-10", "amount": 10_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    }).json()
+
+    rows = client.get("/savings/settled", params={"start": "2026-03-01", "end": "2026-03-31"}).json()
+    names = {r["name"] for r in rows}
+    assert names == {"Tất toán tháng 3"}
+    assert all(r["id"] != still_active["id"] for r in rows)
+    assert all(r["id"] != settled_out_of_range["id"] for r in rows)
+    assert rows[0]["status"] == "settled"
+    assert rows[0]["actual_interest"] == 1_000_000
+
+
 def test_summary_totals(client):
     chong, vo = _users(client)
     client.post("/savings", json={

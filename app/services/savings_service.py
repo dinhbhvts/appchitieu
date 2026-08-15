@@ -69,6 +69,13 @@ def list_unsettled(db: Session, user_id: int | None = None) -> list[SavingsDepos
     return repo.list_unsettled(db, user_id=user_id)
 
 
+def list_settled_between(
+    db: Session, start: date_type | None = None, end: date_type | None = None,
+    user_id: int | None = None,
+) -> list[SavingsDeposit]:
+    return repo.list_settled_between(db, start=start, end=end, user_id=user_id)
+
+
 def create_deposit(
     db: Session, payload: SavingsDepositCreate, actor_id: int | None = None
 ) -> SavingsDeposit:

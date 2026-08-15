@@ -38,6 +38,19 @@ def list_unsettled(user_id: int | None = None, db: Session = Depends(get_db)):
     return service.list_unsettled(db, user_id=user_id)
 
 
+@router.get("/settled", response_model=list[SavingsDepositRead])
+def list_settled(
+    start: date_type | None = None,
+    end: date_type | None = None,
+    user_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """Deposits with status=settled whose settled_date (ngày tất toán) falls
+    in [start, end] - powers the "Các khoản tất toán" card ở cuối tab Gửi
+    tiết kiệm (mặc định: tháng đang xem)."""
+    return service.list_settled_between(db, start=start, end=end, user_id=user_id)
+
+
 @router.get("/summary", response_model=SavingsSummary)
 def savings_summary(
     year: int, user_id: int | None = None, db: Session = Depends(get_db)
