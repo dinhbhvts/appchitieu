@@ -81,3 +81,38 @@ def test_transfer_does_not_change_fund_but_shows_in_person_report(client):
     v = client.get("/reports/summary", params={"user_id": vo}).json()
     assert v["transferred_in"] == 26388888
     assert v["net_held"] == 26388888
+
+
+def test_transfer_works_symmetrically_wife_to_husband(client):
+    """Chuyển khoản là 2 chiều - user_id trên row transfer luôn là NGƯỜI GỬI,
+    bất kể là chồng hay vợ (xem TransactionType.transfer). Đối xứng với test
+    test_transfer_does_not_change_fund_but_shows_in_person_report ở trên,
+    nhưng đổi chiều: vợ gửi cho chồng."""
+    users = client.get("/users").json()
+    chong = users[0]["id"]
+    vo = users[1]["id"]
+
+    client.post("/transactions", json={
+        "date": "2026-07-01", "type": "income", "amount": 15_000_000,
+        "content": "Thưởng vợ", "user_id": vo,
+    })
+    client.post("/transactions", json={
+        "date": "2026-07-02", "type": "transfer", "amount": 10_000_000,
+        "content": "Chuyển cho chồng", "user_id": vo,
+    })
+
+    # Household: transfer must NOT change income/expense/balance.
+    fund = client.get("/reports/summary").json()
+    assert fund["total_income"] == 15_000_000
+    assert fund["balance"] == 15_000_000
+
+    # Wife (sender): transferred_out shown.
+    v = client.get("/reports/summary", params={"user_id": vo}).json()
+    assert v["transferred_out"] == 10_000_000
+    assert v["net_held"] == 15_000_000 - 10_000_000
+
+    # Husband (receiver): transferred_in shown, even though he sent nothing.
+    ch = client.get("/reports/summary", params={"user_id": chong}).json()
+    assert ch["transferred_in"] == 10_000_000
+    assert ch["transferred_out"] == 0
+    assert ch["net_held"] == 10_000_000

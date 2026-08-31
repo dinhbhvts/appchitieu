@@ -213,6 +213,40 @@ def test_account_formula_uses_prev_closing_plus_net_held(client):
     assert by_name["Tài khoản chồng"] == 300_000_000 + 30_500_000 - 26_388_888
 
 
+def test_account_formula_handles_wife_to_husband_transfer(client):
+    """Đối xứng với test_account_formula_uses_prev_closing_plus_net_held ở
+    trên nhưng đổi chiều chuyển khoản (vợ -> chồng) - công thức
+    asset_service._ensure_system_items dùng report_service.period_summary()
+    vốn đã tổng quát theo user_id gửi, nên không cần thay đổi backend, chỉ
+    cần xác nhận bằng test."""
+    chong, vo = _users(client)
+
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 700_000_000,
+    })
+    client.post("/assets", json={
+        "year": 2026, "month": 7, "name": "Tài khoản chồng", "value": 300_000_000,
+    })
+
+    # 8/2026: vợ thu nhập 20,000,000 và chuyển 12,000,000 cho chồng.
+    client.post("/transactions", json={
+        "date": "2026-08-01", "type": "income", "amount": 20_000_000,
+        "content": "Thưởng vợ", "user_id": vo,
+    })
+    client.post("/transactions", json={
+        "date": "2026-08-02", "type": "transfer", "amount": 12_000_000,
+        "content": "Chuyển cho chồng", "user_id": vo,
+    })
+
+    month = client.get("/assets/month", params={"year": 2026, "month": 8}).json()
+    by_name = {i["name"]: i["value"] for i in month["items"]}
+
+    # Vợ: prev(700M) + (thu 20,000,000 - chuyển đi 12,000,000)
+    assert by_name["Tài khoản vợ"] == 700_000_000 + 20_000_000 - 12_000_000
+    # Chồng: prev(300M) + (nhận 12,000,000)
+    assert by_name["Tài khoản chồng"] == 300_000_000 + 12_000_000
+
+
 def test_stock_items_auto_fill_from_holdings(client):
     chong, vo = _users(client)
     client.post("/stocks/holdings", json={

@@ -12,14 +12,17 @@ class TransactionType(str, enum.Enum):
     """What a transaction does to the shared fund.
 
     income/expense change the fund balance. transfer is an INTERNAL move of
-    money between the two people (e.g. husband transfers part of his salary to
-    the wife). A transfer does NOT change the household fund total; it only
-    shifts money from one person to the other in the per-person reports.
+    money between the two people (either direction - the sender is whichever
+    user_id the row is recorded under; the receiver is simply "the other
+    user", since the app always has exactly 2 users - see
+    report_service.period_summary's transferred_out/transferred_in). A
+    transfer does NOT change the household fund total; it only shifts money
+    from one person to the other in the per-person reports.
     """
 
     income = "income"    # THU  - tien vao quy
     expense = "expense"  # CHI  - tien ra khoi quy
-    transfer = "transfer"  # CHUYEN NOI BO - chong -> vo, khong doi so du quy
+    transfer = "transfer"  # CHUYEN NOI BO giua 2 nguoi (2 chieu), khong doi so du quy
 
 
 class CategoryKind(str, enum.Enum):

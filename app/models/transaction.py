@@ -69,8 +69,10 @@ class Transaction(Base):
     type: Mapped[TransactionType] = mapped_column(
         Enum(TransactionType), nullable=False,
         comment="income = thu (tăng quỹ), expense = chi (giảm quỹ), "
-                "transfer = chuyển nội bộ chồng->vợ (KHÔNG đổi tổng quỹ, chỉ "
-                "dịch chuyển giữa 2 người trong báo cáo riêng).",
+                "transfer = chuyển nội bộ giữa 2 người - CHIỀU BẤT KỲ, "
+                "user_id là người CHUYỂN ĐI, người còn lại tự động là người "
+                "nhận (KHÔNG đổi tổng quỹ, chỉ dịch chuyển giữa 2 người "
+                "trong báo cáo riêng).",
     )
 
     # Amount of money. Numeric(18, 0) stores whole VND with no rounding errors
