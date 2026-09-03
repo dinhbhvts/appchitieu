@@ -234,12 +234,22 @@ def test_summary_totals(client):
     assert combined["total_settled_amount_this_year"] == 80_000_000
     # TK1 + TK2 mở mới trong 2026 (100M + 50M); TK3 mở từ 2025 nên không tính.
     assert combined["total_deposited_this_year"] == 150_000_000
-    # 4,800,000 / 80,000,000 * 100 = 6.0%
+    # Money-weighted: TK3 gửi đúng 365 ngày (2025-01-01 -> 2026-01-01) nên
+    # trọng số = gốc y hệt lãi đơn 1 năm -> trùng với lãi/gốc đơn thuần:
+    # 4,800,000 / (80,000,000 * 365/365) * 100 = 6.0%.
     assert combined["avg_return_rate_pct"] == 6.0
-    # TK1 và TK2 đều mở trong chính 2026 (không phải "gửi từ trước"); TK3 tuy
-    # mở từ 2025 nhưng đã tất toán nên không còn active - vậy "gửi từ trước
-    # năm 2026 mà vẫn đang gửi" = 0.
-    assert combined["active_amount_before_this_year"] == 0
+    # TK1 và TK2 đều mở trong chính 2026 nên không tính vào "đầu năm". TK3 mở
+    # từ 2025 (< 2026) và còn hiệu lực tính đến 01/01/2026 (chỉ tất toán ĐÚNG
+    # ngày 01/01/2026, tức chưa tất toán trước đó) nên VẪN được tính vào số
+    # dư đầu năm dù sau đó tất toán ngay trong năm 2026.
+    assert combined["opening_balance_this_year"] == 80_000_000
+    # Đối chiếu: đang gửi hiện tại = đầu năm + gửi thêm trong năm - tất toán
+    # trong năm (80M + 150M - 80M = 150M).
+    assert combined["total_active_amount"] == (
+        combined["opening_balance_this_year"]
+        + combined["total_deposited_this_year"]
+        - combined["total_settled_amount_this_year"]
+    )
 
     only_vo = client.get("/savings/summary", params={"year": 2026, "user_id": vo}).json()
     assert only_vo["total_active_amount"] == 50_000_000
@@ -258,9 +268,9 @@ def test_summary_totals(client):
     assert other_year["avg_return_rate_pct"] is None
 
 
-def test_summary_active_amount_before_this_year_excludes_new_deposits(client):
-    """Bug đã sửa: 'Tổng số tiền gửi từ trước' KHÔNG được lẫn với các khoản
-    mới gửi trong chính năm đang xem - dù cả hai đều đang 'active'."""
+def test_summary_opening_balance_this_year_excludes_new_deposits(client):
+    """Bug đã sửa: 'Số dư đầu năm' KHÔNG được lẫn với các khoản mới gửi
+    trong chính năm đang xem - dù cả hai đều đang 'active'."""
     chong, _ = _users(client)
     client.post("/savings", json={
         # Gửi từ 2024, vẫn đang gửi (chưa tất toán) khi xem báo cáo 2026.
@@ -275,9 +285,9 @@ def test_summary_active_amount_before_this_year_excludes_new_deposits(client):
 
     s = client.get("/savings/summary", params={"year": 2026}).json()
     assert s["total_active_amount"] == 77_000_000
-    # Chỉ "TK cũ" (60M) tính là gửi từ trước 2026 - "TK mới" (17M) dù đang
+    # Chỉ "TK cũ" (60M) tính là số dư đầu năm 2026 - "TK mới" (17M) dù đang
     # active vẫn không được tính vào đây vì nó mở trong chính năm 2026.
-    assert s["active_amount_before_this_year"] == 60_000_000
+    assert s["opening_balance_this_year"] == 60_000_000
     assert s["total_deposited_this_year"] == 17_000_000
 
     # Xem báo cáo năm 2025 (trước khi "TK mới" tồn tại): ca hai khoan deu
@@ -285,13 +295,53 @@ def test_summary_active_amount_before_this_year_excludes_new_deposits(client):
     # mo 2026 (> 2025) nen khong lien quan gi toi nam 2025 (khong active tai
     # thoi diem do trong du lieu logic don gian cua app - chi xet start_date).
     s2025 = client.get("/savings/summary", params={"year": 2025}).json()
-    assert s2025["active_amount_before_this_year"] == 60_000_000
+    assert s2025["opening_balance_this_year"] == 60_000_000
     assert s2025["total_deposited_this_year"] == 0
 
 
+def test_summary_opening_balance_includes_deposit_settled_during_the_year(client):
+    """Khoản gửi TỪ TRƯỚC năm đang chọn nhưng bị tất toán NGAY TRONG năm đó
+    vẫn phải được tính vào "số dư đầu năm" (nó CÓ active vào lúc 01/01) - dù
+    hiện tại (sau khi tất toán) không còn nằm trong danh sách đang gửi.
+    Đây chính là phần chênh lệch từng gây ra 1 != 2+3+4 trước khi sửa."""
+    chong, _ = _users(client)
+    old_dep = client.post("/savings", json={
+        # Gửi từ 2024, chưa tất toán tại thời điểm 01/01/2026.
+        "name": "TK cũ sẽ tất toán trong năm", "start_date": "2024-06-01",
+        "amount": 40_000_000, "term_value": 36, "term_unit": "month",
+        "interest_rate": 5, "user_id": chong,
+    }).json()
+    client.post("/savings", json={
+        "name": "TK mới trong năm", "start_date": "2026-04-01", "amount": 20_000_000,
+        "term_value": 6, "term_unit": "month", "interest_rate": 5, "user_id": chong,
+    })
+    # Tất toán "TK cũ" vào giữa năm 2026.
+    client.put(f"/savings/{old_dep['id']}", json={
+        "status": "settled", "settled_date": "2026-06-01", "actual_interest": 2_000_000,
+    })
+
+    s = client.get("/savings/summary", params={"year": 2026}).json()
+    # Chỉ còn "TK mới" đang active.
+    assert s["total_active_amount"] == 20_000_000
+    # "TK cũ" (40M) tuy đã tất toán trong năm nhưng VẪN active tại 01/01/2026
+    # nên vẫn tính vào số dư đầu năm.
+    assert s["opening_balance_this_year"] == 40_000_000
+    assert s["total_deposited_this_year"] == 20_000_000
+    assert s["total_settled_amount_this_year"] == 40_000_000
+    # Đối chiếu đúng tuyệt đối: 40M + 20M - 40M = 20M.
+    assert s["total_active_amount"] == (
+        s["opening_balance_this_year"]
+        + s["total_deposited_this_year"]
+        - s["total_settled_amount_this_year"]
+    )
+
+
 def test_summary_avg_return_rate_with_multiple_settlements(client):
-    """Tỉ suất lợi nhuận trung bình = tổng lãi thực nhận / tổng tiền gốc tất
-    toán trong năm * 100, gộp nhiều khoản tất toán cùng năm."""
+    """Tỉ suất lợi nhuận trung bình/năm = bình quân theo GỐC x THỜI GIAN GỬI
+    (money-weighted annualized): Σ lãi thực nhận / Σ (gốc * số ngày gửi/365)
+    * 100 - KHÔNG phải lãi/tổng gốc tất toán đơn thuần, vì 2 khoản dưới đây
+    có kỳ hạn khác nhau (12 tháng vs 6 tháng) nên phải quy đổi về cùng đơn vị
+    %/năm trước khi gộp."""
     chong, _ = _users(client)
     d1 = client.post("/savings", json={
         "name": "TK A", "start_date": "2025-01-01", "amount": 100_000_000,
@@ -311,5 +361,10 @@ def test_summary_avg_return_rate_with_multiple_settlements(client):
     s = client.get("/savings/summary", params={"year": 2026}).json()
     assert s["total_settled_amount_this_year"] == 300_000_000
     assert s["interest_received_this_year"] == 15_000_000
-    # 15,000,000 / 300,000,000 * 100 = 5.0%
-    assert s["avg_return_rate_pct"] == 5.0
+    # TK A: 365 ngày gửi -> trọng số = 100,000,000 * 365/365 = 100,000,000.
+    # TK B: 273 ngày gửi (2025-06-01 -> 2026-03-01) -> trọng số =
+    # 200,000,000 * 273/365 ≈ 149,589,041.10.
+    # avg = 15,000,000 / (100,000,000 + 149,589,041.10) * 100 ≈ 6.01%
+    # (khác 5.0% của công thức cũ lãi/tổng gốc đơn thuần, vì TK B kỳ hạn
+    # ngắn hơn được quy đổi đúng tỉ trọng thời gian thay vì tính ngang TK A).
+    assert s["avg_return_rate_pct"] == 6.01

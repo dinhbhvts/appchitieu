@@ -143,23 +143,31 @@ def summary(db: Session, year: int, user_id: int | None = None) -> SavingsSummar
     """Top-of-screen totals: current active total/count (not date-filtered,
     same "current state" philosophy as StockHolding) plus interest actually
     received in `year` (by settled_date), the principal tất toán in `year`,
-    the principal newly gửi in `year` (by start_date), and the resulting
-    average return rate - see SavingsSummary for exactly what each field
-    means."""
+    the principal newly gửi in `year` (by start_date), the opening balance
+    at the start of `year`, and the resulting money-weighted average annual
+    return rate - see SavingsSummary for exactly what each field means and
+    how opening_balance_this_year + total_deposited_this_year -
+    total_settled_amount_this_year reconciles to total_active_amount."""
     unsettled = repo.list_unsettled(db, user_id=user_id)
     total_active_amount = sum(float(d.amount) for d in unsettled)
 
     all_rows = repo.list_all(db)
     in_scope = lambda d: user_id is None or d.user_id == user_id  # noqa: E731
 
-    interest_this_year = sum(
-        float(d.actual_interest)
-        for d in all_rows
+    # Khoan tat toan TRONG nam dang chon VA co ghi lai lai thuc nhan - dung
+    # cho ca interest_this_year va cong thuc ti suat loi nhuan (can biet
+    # amount + start_date/settled_date cua tung khoan de tinh trong so theo
+    # thoi gian gui, xem avg_return_rate_pct ben duoi).
+    settled_this_year_with_interest = [
+        d for d in all_rows
         if d.status == SavingsStatus.settled
         and d.actual_interest is not None
         and d.settled_date is not None
         and d.settled_date.year == year
         and in_scope(d)
+    ]
+    interest_this_year = sum(
+        float(d.actual_interest) for d in settled_this_year_with_interest
     )
 
     total_settled_amount_this_year = sum(
@@ -177,15 +185,37 @@ def summary(db: Session, year: int, user_id: int | None = None) -> SavingsSummar
         if d.start_date.year == year and in_scope(d)
     )
 
-    # Dang gui VA da gui tu truoc nam dang chon (khac total_active_amount,
-    # vi total_active_amount gom ca khoan moi gui trong chinh nam do).
-    active_amount_before_this_year = sum(
-        float(d.amount) for d in unsettled if d.start_date.year < year
+    # So du DAU NAM dang chon (tai thoi diem 01/01): tong goc cac khoan mo
+    # TRUOC nam dang chon va con hieu luc tinh den 01/01 nam do - GOM CA
+    # khoan sau do bi tat toan NGAY TRONG nam dang chon (khac unsettled-now,
+    # vi unsettled-now da loai cac khoan lo tat toan trong nam). Nho vay:
+    # total_active_amount = opening_balance_this_year + total_deposited_
+    # this_year - total_settled_amount_this_year (dung tuyet doi, xem
+    # SavingsSummary.opening_balance_this_year).
+    opening_balance_this_year = sum(
+        float(d.amount)
+        for d in all_rows
+        if d.start_date.year < year
+        and in_scope(d)
+        and (
+            d.status != SavingsStatus.settled
+            or (d.settled_date is not None and d.settled_date.year >= year)
+        )
     )
 
+    # Ti suat loi nhuan trung binh/nam - binh quan theo GOC x THOI GIAN GUI
+    # (money-weighted annualized), KHONG phai lai/tong goc tat toan don
+    # thuan: quy doi lai thuc nhan cua tung khoan ve "goc x so nam gui" roi
+    # chia tong lai cho tong do -> cac khoan ky han ngan/dai duoc quy ve
+    # cung mot don vi %/nam truoc khi gop lai, tranh bi lech khi cac khoan
+    # tat toan trong nam co thoi gian gui khac nhau.
+    weighted_principal_years = sum(
+        float(d.amount) * (d.settled_date - d.start_date).days / 365
+        for d in settled_this_year_with_interest
+    )
     avg_return_rate_pct = (
-        round(interest_this_year / total_settled_amount_this_year * 100, 2)
-        if total_settled_amount_this_year > 0 else None
+        round(interest_this_year / weighted_principal_years * 100, 2)
+        if weighted_principal_years > 0 else None
     )
 
     return SavingsSummary(
@@ -195,7 +225,7 @@ def summary(db: Session, year: int, user_id: int | None = None) -> SavingsSummar
         total_settled_amount_this_year=total_settled_amount_this_year,
         total_deposited_this_year=total_deposited_this_year,
         avg_return_rate_pct=avg_return_rate_pct,
-        active_amount_before_this_year=active_amount_before_this_year,
+        opening_balance_this_year=opening_balance_this_year,
     )
 
 

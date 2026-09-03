@@ -88,11 +88,23 @@ class SavingsSummary(BaseModel):
     # Tổng số tiền các khoản MỞ MỚI trong năm đang chọn (theo start_date),
     # bất kể đã tất toán hay còn đang gửi - "gửi thêm trong năm".
     total_deposited_this_year: float = 0
-    # Tỉ suất lợi nhuận trung bình (%) = lãi đã nhận / tổng tất toán trong
-    # năm * 100. None khi năm đó chưa có khoản nào tất toán (tránh chia 0).
+    # Tỉ suất lợi nhuận trung bình/năm (%) - bình quân theo GỐC x THỜI GIAN
+    # GỬI (money-weighted annualized): Σ actual_interest / Σ (amount * số
+    # ngày gửi thực tế / 365) * 100, tính trên các khoản tất toán trong năm
+    # đang chọn. Không dùng "lãi / tổng gốc tất toán" đơn thuần vì cách đó bị
+    # lệch khi các khoản có kỳ hạn (thời gian gửi) khác nhau - một khoản gửi
+    # 3 tháng và một khoản gửi 12 tháng cùng lãi suất niêm yết sẽ cho ra lãi
+    # tuyệt đối rất khác nhau, chia thẳng sẽ ra con số không phản ánh đúng
+    # lãi suất %/năm thực tế. None khi năm đó chưa có khoản nào tất toán
+    # (tránh chia 0).
     avg_return_rate_pct: float | None = None
-    # Số tiền các khoản ĐANG GỬI mà đã gửi TỪ TRƯỚC năm đang chọn (start_date
-    # năm trước đó trở về trước) - KHÁC total_active_amount, vì
-    # total_active_amount gồm cả khoản mới gửi trong chính năm đang chọn.
-    # Dùng cho card "Thông tin gửi tiết kiệm" trên màn Báo cáo.
-    active_amount_before_this_year: float = 0
+    # Số dư ĐẦU NĂM đang chọn (tính tại thời điểm 01/01 năm đó): tổng gốc của
+    # các khoản mở TRƯỚC năm đang chọn (start_date.year < year) và còn hiệu
+    # lực (chưa tất toán) tính đến 01/01 năm đó - tức GỒM CẢ các khoản sau đó
+    # bị tất toán ngay trong năm đang chọn (khác active_amount kiểu "còn
+    # active tính đến HIỆN TẠI", vốn sẽ loại các khoản đã lỡ tất toán trong
+    # năm). Nhờ vậy đối chiếu được: total_active_amount = opening_balance_
+    # this_year + total_deposited_this_year - total_settled_amount_this_year
+    # (số dư đầu năm + gửi thêm trong năm - tất toán trong năm = đang gửi
+    # hiện tại). Dùng cho card "Thông tin gửi tiết kiệm" trên màn Báo cáo.
+    opening_balance_this_year: float = 0
