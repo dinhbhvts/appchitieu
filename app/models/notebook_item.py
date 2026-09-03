@@ -16,7 +16,17 @@ Which columns a given `type` actually uses (for the ADD/EDIT form):
   - birthday:          title, relation, date1
   - anniversary:        title, relation, date1 (+ date1_is_lunar),
   - service:            title, date1, date2, recurrence_days, amount
-  - maintenance:        title, date1, date2, recurrence_days
+  - maintenance:        title, date1, date2, recurrence_days, is_completed
+                         (dùng cho THIẾT BỊ - xem "periodic" bên dưới cho
+                         việc định kỳ dùng cho NGƯỜI)
+  - warranty:            title, date1 (Ngày mua), date2 (Hạn bảo hành),
+                         amount, tags, note - KHÔNG có nhắc nhở ở Tổng quan
+                         (xem notebook_item_service._DUE_DATE_TYPES), chỉ
+                         hiển thị màu còn hạn/hết hạn trên danh sách
+  - periodic:            title, date1 (Ngày thực hiện), date2 (Ngày đến hạn
+                         kế tiếp), is_completed, tags, note - bản song sinh
+                         của "maintenance" nhưng dùng cho NGƯỜI (vd khám sức
+                         khỏe định kỳ) thay vì thiết bị
   - child_milestone:    title, date1
   - account:            title, system, relation (as "Người dùng"), username,
                          password_encrypted
@@ -140,18 +150,21 @@ class NotebookItem(Base):
                 "bản ghi 'Sinh nhật' riêng cho người này để tránh nhắc trùng.",
     )
 
-    # -- type=task field (Nhắc việc) --
-    # Đánh dấu việc đã xong. Chỉ có ý nghĩa với type=task - một khi True,
-    # notebook_item_service.get_upcoming()/get_calendar_events() bỏ qua hẳn
-    # dòng này (không hiện ở Dashboard, không còn vào danh sách tính lịch),
-    # và app/services/push_service.py (dùng lại get_upcoming) vì vậy cũng tự
-    # động ngừng gửi thông báo nhắc cho việc đó - không cần xử lý gì thêm ở
-    # đó. Việc đã hoàn thành vẫn còn nguyên trong danh sách "Tiện ích" (Cấu
-    # hình) để xem lại lịch sử, chỉ ẩn khỏi các chỗ "sắp tới".
+    # -- type=task/maintenance/periodic field (Nhắc việc/Bảo trì/Định kỳ) --
+    # Đánh dấu đã xong/đã thực hiện. Áp dụng cho 3 loại: task (Nhắc việc),
+    # maintenance (Bảo trì - thiết bị), periodic (Định kỳ - người). Một khi
+    # True, notebook_item_service.get_upcoming() bỏ qua hẳn dòng này (không
+    # hiện ở Dashboard, không còn "sắp tới") - xem _COMPLETABLE_TYPES ở đó.
+    # get_calendar_events() chỉ áp dụng riêng cho task (xem hàm đó). Vì
+    # push_service.py dùng lại get_upcoming(), việc/bảo trì/định kỳ đã đánh
+    # dấu xong cũng tự động ngừng được nhắc qua thông báo đẩy - không cần xử
+    # lý gì thêm. Mục đã hoàn thành vẫn còn nguyên trong danh sách "Tiện ích"
+    # (Cấu hình) để xem lại lịch sử, chỉ ẩn khỏi các chỗ "sắp tới".
     is_completed: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False,
-        comment="Chỉ áp dụng cho type=task: True = việc đã xong, ẩn khỏi "
-                "Dashboard/lịch/thông báo nhắc (get_upcoming bỏ qua hẳn).",
+        comment="Áp dụng cho type=task/maintenance/periodic: True = đã "
+                "xong/đã thực hiện, ẩn khỏi Dashboard/thông báo nhắc "
+                "(get_upcoming bỏ qua hẳn).",
     )
 
     # -- custom (non-default) type fields --

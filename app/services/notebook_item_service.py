@@ -26,8 +26,16 @@ logger = logging.getLogger("vibeapp.notebook_item")
 _YEARLY_RECURRING_TYPES = ("birthday", "anniversary")
 # Built-in type keys whose date2 ("ngày hết hạn / đến hạn kế tiếp") is a
 # one-off upcoming due date, not a yearly recurrence. "task" reuses date2 as
-# "Ngày cần hoàn thành" (Tạo nhắc việc) - same one-off due-date semantics.
-_DUE_DATE_TYPES = ("service", "maintenance", "task")
+# "Ngày cần hoàn thành" (Tạo nhắc việc); "periodic" reuses it as "Ngày đến
+# hạn kế tiếp" (Định kỳ - dùng cho người, khác "maintenance" dùng cho thiết
+# bị) - same one-off due-date semantics. Deliberately EXCLUDES "warranty"
+# (Bảo hành): that type's date2 ("Hạn bảo hành") only drives a còn-hạn/
+# hết-hạn COLOR on the list (frontend-only), not a Dashboard reminder.
+_DUE_DATE_TYPES = ("service", "maintenance", "task", "periodic")
+# Built-in type keys with a "đã hoàn thành/đã thực hiện" tickbox
+# (is_completed) - once ticked, get_upcoming() skips the row entirely
+# regardless of its due date (đã xong thì thôi không còn "sắp tới" nữa).
+_COMPLETABLE_TYPES = ("task", "maintenance", "periodic")
 
 
 def _prepare_data(db: Session, data: dict) -> dict:
@@ -120,14 +128,22 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
         type=birthday, but only when remind_birthday is True (default) -
         the user unticks it in the UI if that person's birthday is already
         tracked as a separate type=birthday row, to avoid a duplicate.
-      - service / maintenance: date2 ("ngày hết hạn / đến hạn kế tiếp") if
-        it falls in the window - this is a stored one-off due date, not
-        auto-recomputed from recurrence_days (keeps the logic simple; the
-        user updates date2 by hand after renewing, same as before).
+      - service / maintenance / periodic: date2 ("ngày hết hạn / đến hạn kế
+        tiếp") if it falls in the window - this is a stored one-off due
+        date, not auto-recomputed from recurrence_days (keeps the logic
+        simple; the user updates date2 by hand after renewing, same as
+        before). "periodic" (Định kỳ) is the person-oriented twin of
+        "maintenance" (Bảo trì dùng cho thiết bị) - same date2 semantics.
       - task ("Tạo nhắc việc"): date2 ("Ngày cần hoàn thành") if it falls in
-        the window - same one-off due-date handling as service/maintenance,
-        EXCEPT a task with is_completed=True is skipped entirely regardless
-        of its due date (đã xong thì thôi không còn "sắp tới" nữa).
+        the window - same one-off due-date handling as service/maintenance.
+      - task / maintenance / periodic all support a "đã hoàn thành/đã thực
+        hiện" tickbox (is_completed) - a row of any of these 3 types with
+        is_completed=True is skipped entirely regardless of its due date
+        (đã xong thì thôi không còn "sắp tới" nữa). See _COMPLETABLE_TYPES.
+
+    "warranty" (Bảo hành) is deliberately NOT included here - its date2 only
+    drives a còn-hạn/hết-hạn color on the Tiện ích list (frontend-only), not
+    a Dashboard reminder.
 
     Other types (address, account, note, child_milestone, custom types) have
     no natural "upcoming" concept and are not included.
@@ -137,11 +153,11 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
     reminders: list[UpcomingReminder] = []
 
     for item in repo.list_all(db):
-        # Viec (task) da danh dau hoan thanh: bo qua han - khong con la
-        # "sap toi" nua. Ap dung o day (nguon chung cho ca Dashboard va
-        # push_service.send_daily_reminders) nen chi can sua 1 cho la ca
+        # Viec/bao tri/dinh ky da danh dau hoan thanh: bo qua han - khong
+        # con la "sap toi" nua. Ap dung o day (nguon chung cho ca Dashboard
+        # va push_service.send_daily_reminders) nen chi can sua 1 cho la ca
         # hai tu dong ngung nhac.
-        if item.type == "task" and item.is_completed:
+        if item.type in _COMPLETABLE_TYPES and item.is_completed:
             continue
         is_birthday_reminder = (
             item.type in _YEARLY_RECURRING_TYPES

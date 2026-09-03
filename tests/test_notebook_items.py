@@ -287,6 +287,83 @@ def test_completed_task_hidden_from_upcoming_and_calendar(client):
     assert any(x["title"] == "Nộp báo cáo" and x["is_completed"] for x in still_listed)
 
 
+def test_warranty_fields_roundtrip_and_excluded_from_upcoming(client):
+    """Bảo hành: title/date1 (Ngày mua)/date2 (Hạn bảo hành)/amount/tags/
+    note lưu đúng, nhưng KHÔNG xuất hiện ở Dashboard "sắp tới" ngay cả khi
+    date2 rơi trong khoảng ngày - đây là loại duy nhất trong các loại có
+    date2 mà KHÔNG có nhắc nhở (chỉ hiển thị màu còn hạn/hết hạn ở danh
+    sách, xử lý phía frontend) - xem notebook_item_service._DUE_DATE_TYPES."""
+    import datetime
+    today = datetime.date.today()
+    soon = today + datetime.timedelta(days=5)
+
+    r = client.post("/notebook-items", json={
+        "type": "warranty", "title": "Tủ lạnh Samsung",
+        "date1": "2026-01-10", "date2": soon.isoformat(),
+        "amount": 15_000_000, "tags": "#dien_may", "note": "Mua ở Điện Máy Xanh",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["date1"] == "2026-01-10"
+    assert data["date2"] == soon.isoformat()
+    assert data["amount"] == 15_000_000
+    assert data["tags"] == "#dien_may"
+
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert all(u["item"]["title"] != "Tủ lạnh Samsung" for u in upcoming)
+
+
+def test_periodic_type_upcoming_due_date_and_completed(client):
+    """Định kỳ (person-oriented twin of Bảo trì): date2 ("Ngày đến hạn kế
+    tiếp") sinh nhắc nhở giống service/maintenance/task, và tích "đã thực
+    hiện" thì ẩn khỏi upcoming giống task."""
+    import datetime
+    today = datetime.date.today()
+    due = today + datetime.timedelta(days=4)
+
+    r = client.post("/notebook-items", json={
+        "type": "periodic", "title": "Khám sức khỏe định kỳ",
+        "date1": "2026-01-15", "date2": due.isoformat(),
+    })
+    assert r.status_code == 201
+    item_id = r.json()["id"]
+    assert r.json()["is_completed"] is False
+
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    match = next((u for u in upcoming if u["item"]["title"] == "Khám sức khỏe định kỳ"), None)
+    assert match is not None
+    assert match["occurs_on"] == due.isoformat()
+
+    r2 = client.put(f"/notebook-items/{item_id}", json={"is_completed": True})
+    assert r2.json()["is_completed"] is True
+
+    upcoming2 = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert all(u["item"]["title"] != "Khám sức khỏe định kỳ" for u in upcoming2)
+
+
+def test_maintenance_completed_hidden_from_upcoming(client):
+    """Bảo trì (thiết bị) giờ cũng có tickbox 'đã thực hiện' giống Nhắc việc
+    - đối xứng với test_completed_task_hidden_from_upcoming_and_calendar,
+    nhưng maintenance không tham gia lịch tháng (chỉ task mới có event dot
+    trên lịch - xem get_calendar_events), nên chỉ kiểm tra upcoming."""
+    import datetime
+    today = datetime.date.today()
+    due = today + datetime.timedelta(days=3)
+
+    r = client.post("/notebook-items", json={
+        "type": "maintenance", "title": "Bảo trì điều hòa",
+        "date1": "2026-02-01", "date2": due.isoformat(),
+    })
+    item_id = r.json()["id"]
+
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert any(u["item"]["title"] == "Bảo trì điều hòa" for u in upcoming)
+
+    client.put(f"/notebook-items/{item_id}", json={"is_completed": True})
+    upcoming2 = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert all(u["item"]["title"] != "Bảo trì điều hòa" for u in upcoming2)
+
+
 def test_personal_info_birthday_reminder_default_on(client):
     """remind_birthday defaults to True - Ngày sinh của Thông tin cá nhân tự
     động lên danh sách nhắc nhở, giống type=birthday."""

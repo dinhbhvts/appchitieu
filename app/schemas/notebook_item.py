@@ -37,8 +37,8 @@ class NotebookItemBase(BaseModel):
     info: str | None = None
     tags: str | None = None
     note: str | None = None
-    # Only meaningful for type=task - see the column's comment in
-    # app/models/notebook_item.py. Defaults to False (chưa xong).
+    # Meaningful for type=task/maintenance/periodic - see the column's
+    # comment in app/models/notebook_item.py. Defaults to False (chưa xong).
     is_completed: bool = False
 
 

@@ -55,6 +55,8 @@ DEFAULT_NOTEBOOK_TYPES = [
     ("task", "Nhắc việc", "✅"),
     ("note", "Ghi chú", "📝"),
     ("child_milestone", "Mốc của con", "👶"),
+    ("warranty", "Bảo hành", "🛡️"),
+    ("periodic", "Định kỳ", "🔁"),
 ]
 
 
