@@ -313,6 +313,44 @@ def test_warranty_fields_roundtrip_and_excluded_from_upcoming(client):
     assert all(u["item"]["title"] != "Tủ lạnh Samsung" for u in upcoming)
 
 
+def test_website_type_roundtrip_and_searchable(client):
+    """Loại 'Trang web': title, website, info (Mô tả), tags, note lưu đúng
+    và tìm được theo nội dung URL."""
+    types = {t["key"] for t in client.get("/notebook-types").json()}
+    assert "website" in types
+
+    r = client.post("/notebook-items", json={
+        "type": "website", "title": "Cổng dịch vụ công",
+        "website": "https://dichvucong.gov.vn", "info": "Nộp hồ sơ online",
+        "tags": "#hanh_chinh", "note": "Đăng nhập bằng VNeID",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["website"] == "https://dichvucong.gov.vn"
+    assert data["info"] == "Nộp hồ sơ online"
+
+    found = client.get("/notebook-items", params={"q": "dichvucong"}).json()
+    assert [x["title"] for x in found] == ["Cổng dịch vụ công"]
+
+
+def test_account_website_field_roundtrip_and_update(client):
+    """Tài khoản cũng có trường Trang web, sửa được như các trường khác."""
+    r = client.post("/notebook-items", json={
+        "type": "account", "title": "Ngân hàng", "system": "VCB Digibank",
+        "username": "chong01", "password": "s3cret", "website": "vcbdigibank.vn",
+    })
+    item = r.json()
+    assert item["website"] == "vcbdigibank.vn"
+    assert item["password"] == "s3cret"
+
+    upd = client.put(f"/notebook-items/{item['id']}", json={
+        "website": "https://vcbdigibank.vietcombank.com.vn",
+    }).json()
+    assert upd["website"] == "https://vcbdigibank.vietcombank.com.vn"
+    # Other fields untouched by the partial update.
+    assert upd["username"] == "chong01"
+
+
 def test_periodic_type_upcoming_due_date_and_completed(client):
     """Định kỳ (person-oriented twin of Bảo trì): date2 ("Ngày đến hạn kế
     tiếp") sinh nhắc nhở giống service/maintenance/task, và tích "đã thực

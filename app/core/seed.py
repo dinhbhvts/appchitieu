@@ -57,6 +57,7 @@ DEFAULT_NOTEBOOK_TYPES = [
     ("child_milestone", "Mốc của con", "👶"),
     ("warranty", "Bảo hành", "🛡️"),
     ("periodic", "Định kỳ", "🔁"),
+    ("website", "Trang web", "🔗"),
 ]
 
 

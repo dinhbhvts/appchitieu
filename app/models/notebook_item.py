@@ -29,7 +29,9 @@ Which columns a given `type` actually uses (for the ADD/EDIT form):
                          khỏe định kỳ) thay vì thiết bị
   - child_milestone:    title, date1
   - account:            title, system, relation (as "Người dùng"), username,
-                         password_encrypted
+                         password_encrypted, website
+  - website:            title, website (Trang web - link mở được/copy
+                         được), info (Mô tả), tags, note
   - personal_info:      title (Tên thường gọi), full_name, date1 (Ngày sinh)
                          + remind_birthday, phone, id_number, id_issued_date,
                          id_issued_place, date2 (Ngày hết hạn CCCD),
@@ -119,6 +121,16 @@ class NotebookItem(Base):
         comment="Mật khẩu đã MÃ HÓA 2 CHIỀU (không phải hash) bằng "
                 "app.core.crypto - vì người dùng cần xem lại được. Không bao "
                 "giờ trả nguyên giá trị cột này qua API, luôn giải mã trước.",
+    )
+
+    # "Trang web" - a URL the user can open (link) or copy from the list.
+    # Used by type=website (main field) and type=account (login page of the
+    # system). Stored as typed; the frontend adds "https://" when opening a
+    # value without a scheme.
+    website: Mapped[str | None] = mapped_column(
+        String(500), nullable=True,
+        comment="Trang web (URL) - dùng cho type=website và type=account. "
+                "Frontend cho bấm mở link hoặc copy.",
     )
 
     # -- type=personal_info fields (Thông tin cá nhân: CCCD, BHYT, ...) --

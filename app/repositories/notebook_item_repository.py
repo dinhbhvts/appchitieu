@@ -46,6 +46,7 @@ def list_all(
                 NotebookItem.address.ilike(like),
                 NotebookItem.system.ilike(like),
                 NotebookItem.username.ilike(like),
+                NotebookItem.website.ilike(like),
                 NotebookItem.info.ilike(like),
                 NotebookItem.tags.ilike(like),
                 NotebookItem.note.ilike(like),
