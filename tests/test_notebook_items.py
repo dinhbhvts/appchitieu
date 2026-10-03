@@ -540,3 +540,135 @@ def test_calendar_events_empty_month_returns_empty_list(client):
     events = client.get("/notebook-items/calendar-events",
                          params={"year": 1999, "month": 1}).json()
     assert events == []
+
+
+# ---- Ngày kỉ niệm (special_day) ----
+
+def test_special_day_type_is_seeded(client):
+    keys = {t["key"]: t["name"] for t in client.get("/notebook-types").json()}
+    assert keys.get("special_day") == "Ngày kỉ niệm"
+    assert keys.get("document") == "Hồ sơ"
+
+
+def test_special_day_upcoming_yearly_recurrence(client):
+    import datetime
+    today = datetime.date.today()
+    soon = today + datetime.timedelta(days=7)
+    r = client.post("/notebook-items", json={
+        "type": "special_day", "title": "Ngày cưới",
+        "date1": f"2015-{soon.month:02d}-{soon.day:02d}",
+        "tags": "#gia_dinh", "note": "Đặt bàn nhà hàng",
+    })
+    assert r.status_code == 201
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    match = next(u for u in upcoming if u["item"]["title"] == "Ngày cưới")
+    assert match["occurs_on"] == soon.isoformat()
+    assert match["days_until"] == 7
+
+
+def test_special_day_outside_window_not_upcoming(client):
+    import datetime
+    far = datetime.date.today() + datetime.timedelta(days=200)
+    client.post("/notebook-items", json={
+        "type": "special_day", "title": "Kỉ niệm xa",
+        "date1": f"2015-{far.month:02d}-{far.day:02d}",
+    })
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert all(u["item"]["title"] != "Kỉ niệm xa" for u in upcoming)
+
+
+def test_calendar_events_includes_special_day(client):
+    client.post("/notebook-items", json={
+        "type": "special_day", "title": "Ngày quen nhau", "date1": "2012-08-20",
+    })
+    events = client.get("/notebook-items/calendar-events",
+                         params={"year": 2027, "month": 8}).json()
+    match = next(e for e in events if e["title"] == "Ngày quen nhau")
+    assert match["date"] == "2027-08-20"
+    assert match["category"] == "special_day"
+
+
+# ---- Hồ sơ (document) ----
+
+def test_document_fields_roundtrip_and_searchable(client):
+    r = client.post("/notebook-items", json={
+        "type": "document", "title": "Sổ đỏ nhà Yên Lạc",
+        "document_type": "Sổ đỏ", "document_no": "CS 123456",
+        "info": "Thửa đất số 12, tờ bản đồ 5", "date1": "2020-03-15",
+        "tags": "#nha", "note": "Bản gốc cất ở tủ",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["document_type"] == "Sổ đỏ"
+    assert data["document_no"] == "CS 123456"
+    assert data["info"] == "Thửa đất số 12, tờ bản đồ 5"
+    assert data["date1"] == "2020-03-15"
+
+    updated = client.put(f"/notebook-items/{data['id']}", json={
+        "document_no": "CS 654321",
+    }).json()
+    assert updated["document_no"] == "CS 654321"
+    assert updated["document_type"] == "Sổ đỏ"
+
+    by_no = client.get("/notebook-items", params={"q": "654321"}).json()
+    assert any(x["id"] == data["id"] for x in by_no)
+    by_kind = client.get("/notebook-items", params={"q": "sổ đỏ"}).json()
+    assert any(x["id"] == data["id"] for x in by_kind)
+
+
+def test_document_not_in_upcoming(client):
+    import datetime
+    soon = datetime.date.today() + datetime.timedelta(days=3)
+    client.post("/notebook-items", json={
+        "type": "document", "title": "Hợp đồng thuê nhà",
+        "date1": f"2020-{soon.month:02d}-{soon.day:02d}",
+    })
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 30}).json()
+    assert all(u["item"]["title"] != "Hợp đồng thuê nhà" for u in upcoming)
+
+
+def test_document_profile_name_creates_drive_folder_like_personal_info(client, monkeypatch):
+    from app.core import drive
+
+    created_folders = []
+    monkeypatch.setattr(
+        drive, "create_folder",
+        lambda name, parent_folder_id=None: created_folders.append(name) or {"id": "folder-doc", "name": name},
+    )
+    upload_calls = []
+
+    def fake_upload(filename, mime_type, content, parent_folder_id=None):
+        upload_calls.append(parent_folder_id)
+        return {"id": "file-1", "name": filename, "webViewLink": "https://drive/f"}
+
+    monkeypatch.setattr(drive, "upload_file", fake_upload)
+
+    created = client.post("/notebook-items", json={
+        "type": "document", "title": "Sổ đỏ", "profile_name": "Hồ sơ Sổ đỏ",
+    }).json()
+    assert created["profile_name"] == "Hồ sơ Sổ đỏ"
+    assert created_folders == ["Hồ sơ Sổ đỏ"]
+
+    r = client.post(
+        f"/notebook-items/{created['id']}/attachments",
+        files={"file": ("so_do.pdf", b"pdf-bytes", "application/pdf")},
+    )
+    assert r.status_code == 201
+    assert upload_calls == ["folder-doc"]
+
+    # Tên hồ sơ bị khóa sau khi tạo, giống personal_info.
+    r = client.put(f"/notebook-items/{created['id']}", json={"profile_name": "Khác"})
+    assert r.json()["profile_name"] == "Hồ sơ Sổ đỏ"
+
+
+def test_other_types_do_not_create_drive_folder(client, monkeypatch):
+    from app.core import drive
+    calls = []
+    monkeypatch.setattr(
+        drive, "create_folder",
+        lambda name, parent_folder_id=None: calls.append(name) or {"id": "x", "name": name},
+    )
+    client.post("/notebook-items", json={
+        "type": "note", "title": "Ghi chú", "profile_name": "Không tạo",
+    })
+    assert calls == []

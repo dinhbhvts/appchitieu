@@ -32,6 +32,9 @@ class NotebookItemBase(BaseModel):
     birth_cert_no: str | None = None
     health_insurance_no: str | None = None
     hometown: str | None = None
+    # type=document fields (Hồ sơ): "Loại hồ sơ", "Số giấy tờ".
+    document_type: str | None = None
+    document_no: str | None = None
     # Only meaningful for type=personal_info - see the column's comment in
     # app/models/notebook_item.py. Defaults to True (checked in the UI).
     remind_birthday: bool = True
@@ -45,7 +48,7 @@ class NotebookItemBase(BaseModel):
 
 
 class NotebookItemCreate(NotebookItemBase):
-    # "Tên hồ sơ" - only meaningful for type=personal_info. Set once here at
+    # "Tên hồ sơ" - only meaningful for type=personal_info/document. Set once here at
     # creation to auto-create a matching Drive subfolder (see
     # notebook_item_service.create_item) - deliberately absent from
     # NotebookItemUpdate below so it can never be changed afterwards.
@@ -76,6 +79,8 @@ class NotebookItemUpdate(BaseModel):
     birth_cert_no: str | None = None
     health_insurance_no: str | None = None
     hometown: str | None = None
+    document_type: str | None = None
+    document_no: str | None = None
     remind_birthday: bool | None = None
     info: str | None = None
     tags: str | None = None
@@ -112,7 +117,8 @@ class CalendarEvent(BaseModel):
     powers the highlight dots on the Tổng quan month-calendar view.
 
     category: "birthday" (sinh nhật, includes personal_info with
-    remind_birthday=True) | "anniversary" (ngày giỗ) | "task" (nhắc việc).
+    remind_birthday=True) | "anniversary" (ngày giỗ) | "special_day" (ngày
+    kỉ niệm) | "task" (nhắc việc).
     date is always a concrete SOLAR date, same lunar-conversion guarantee as
     UpcomingReminder.occurs_on.
     """

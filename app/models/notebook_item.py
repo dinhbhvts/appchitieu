@@ -43,6 +43,16 @@ Which columns a given `type` actually uses (for the ADD/EDIT form):
                          có profile_name
   - task:                title, info (Công việc), date2 (Ngày cần hoàn
                          thành - drives the Tổng quan reminder)
+  - special_day:         title (Tiêu đề), date1 (Ngày, + date1_is_lunar),
+                         tags, note - "Ngày kỉ niệm" (ngày cưới, ngày quen
+                         nhau, ngày về nhà mới...): lặp lại HẰNG NĂM giống
+                         birthday, có nhắc nhở ở Tổng quan/thông báo đẩy
+  - document:            title, document_type (Loại hồ sơ), document_no
+                         (Số giấy tờ), info (Nội dung), date1 (Ngày), tags,
+                         note, profile_name (Tên hồ sơ - chỉ đặt lúc tạo) +
+                         file attachments trên Drive - xử lý Drive y hệt
+                         personal_info (xem notebook_item_service
+                         ._DRIVE_FOLDER_TYPES). Không có nhắc nhở.
   - note / any custom
     type the user adds:  title, tags, info, note
 This mapping is a UI concern (which fields to show), not enforced here.
@@ -88,7 +98,9 @@ class NotebookItem(Base):
         Date, nullable=True,
         comment="Ngày chính, ý nghĩa tùy loại: birthday=ngày sinh, "
                 "anniversary=ngày mất, service=ngày bắt đầu/lắp đặt, "
-                "maintenance=lần bảo trì gần nhất, child_milestone=ngày mốc.",
+                "maintenance=lần bảo trì gần nhất, child_milestone=ngày mốc, "
+                "special_day=ngày kỉ niệm (lặp hằng năm), document=ngày "
+                "của hồ sơ.",
     )
     # True when date1 is a LUNAR calendar date (âm lịch) - death anniversaries
     # in Vietnam are tracked by the lunar calendar. The /lunar utility converts
@@ -162,6 +174,21 @@ class NotebookItem(Base):
                 "bản ghi 'Sinh nhật' riêng cho người này để tránh nhắc trùng.",
     )
 
+    # -- type=document fields (Hồ sơ: sổ đỏ, hợp đồng, bằng cấp, giấy tờ xe...) --
+    # "Loại hồ sơ" - free text (UI gợi ý sẵn vài loại hay dùng), not a lookup
+    # table: a two-person household doesn't need managed document kinds.
+    document_type: Mapped[str | None] = mapped_column(
+        String(100), nullable=True,
+        comment="Chỉ áp dụng cho type=document: 'Loại hồ sơ' (vd Sổ đỏ, "
+                "Hợp đồng, Bằng cấp, Giấy tờ xe) - nhập tự do.",
+    )
+    # "Số giấy tờ" - the document's own number (số sổ, số hợp đồng...).
+    document_no: Mapped[str | None] = mapped_column(
+        String(100), nullable=True,
+        comment="Chỉ áp dụng cho type=document: 'Số giấy tờ' (số sổ, số hợp "
+                "đồng, số văn bằng...).",
+    )
+
     # -- type=task/maintenance/periodic field (Nhắc việc/Bảo trì/Định kỳ) --
     # Đánh dấu đã xong/đã thực hiện. Áp dụng cho 3 loại: task (Nhắc việc),
     # maintenance (Bảo trì - thiết bị), periodic (Định kỳ - người). Một khi
@@ -193,17 +220,17 @@ class NotebookItem(Base):
     # Free-text content: general notes, or extra detail for any type.
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # -- type=personal_info attachment-folder fields --
-    # "Tên hồ sơ" - set once at creation, used as the name of this person's
+    # -- type=personal_info / type=document attachment-folder fields --
+    # "Tên hồ sơ" - set once at creation, used as the name of this row's
     # own subfolder in Google Drive. Locked after creation (not in
     # NotebookItemUpdate) so it can never drift out of sync with the actual
     # Drive folder name - see app/services/notebook_item_service.py.
     profile_name: Mapped[str | None] = mapped_column(
         String(150), nullable=True,
-        comment="Chỉ áp dụng cho type=personal_info: 'Tên hồ sơ' - đặt 1 lần "
-                "lúc tạo, dùng làm tên thư mục con trên Google Drive để chứa "
-                "file đính kèm của người này. Không cho đổi sau khi tạo "
-                "(tránh lệch tên thư mục đã tạo trên Drive).",
+        comment="Chỉ áp dụng cho type=personal_info và type=document: 'Tên "
+                "hồ sơ' - đặt 1 lần lúc tạo, dùng làm tên thư mục con trên "
+                "Google Drive để chứa file đính kèm của mục này. Không cho "
+                "đổi sau khi tạo (tránh lệch tên thư mục đã tạo trên Drive).",
     )
     # Google Drive folder id of that subfolder, created automatically the
     # first time this row is saved with a profile_name (see

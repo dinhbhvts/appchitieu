@@ -30,6 +30,7 @@ import random
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.lunar import solar_to_lunar
 from app.repositories import push_repository as repo
 from app.schemas.notebook_item import UpcomingReminder
 from app.schemas.push import PushSubscriptionCreate, RunDailyResult
@@ -38,7 +39,7 @@ from app.services.notebook_item_service import get_upcoming
 logger = logging.getLogger("vibeapp.push")
 settings = get_settings()
 
-# Câu chữ theo TỪNG NGỮ CẢNH: loại sự kiện (sinh nhật / ngày giỗ / nhắc việc
+# Câu chữ theo TỪNG NGỮ CẢNH: loại sự kiện (sinh nhật / ngày giỗ / ngày kỉ niệm / nhắc việc
 # / dịch vụ-bảo trì) x số ngày còn lại (hôm nay / ngày mai / 2-3 ngày nữa).
 # Mục tiêu là để thông báo đọc như một người thân đang nhắc khéo, không phải
 # một dòng log hệ thống - "Còn 2 ngày nữa" đọc giống nhau dù là sinh nhật hay
@@ -69,6 +70,21 @@ _ANNIVERSARY_PHRASES = {
     "default": [
         "🕯️ Còn {days} ngày nữa là đến ngày giỗ {title}.",
         "🕯️ Ngày giỗ {title} sắp tới, còn {days} ngày để chuẩn bị chu đáo.",
+    ],
+}
+# Ngày kỉ niệm (special_day): giọng vui, ấm cúng. {years} là " (N năm)"
+# khi biết năm gốc, rỗng nếu không (xem _years_suffix).
+_SPECIAL_DAY_PHRASES = {
+    0: [
+        "💝 Hôm nay là ngày kỉ niệm {title}{years} - cùng nhau ăn mừng nhé!",
+        "🥂 Ngày kỉ niệm {title}{years} là hôm nay đấy, đừng để trôi qua lặng lẽ.",
+    ],
+    1: [
+        "💝 Ngày mai là ngày kỉ niệm {title}{years} - đã lên kế hoạch gì chưa?",
+    ],
+    "default": [
+        "💝 Còn {days} ngày nữa là đến ngày kỉ niệm {title}{years}.",
+        "💝 Ngày kỉ niệm {title}{years} sắp tới, còn {days} ngày để chuẩn bị.",
     ],
 }
 _TASK_PHRASES = {
@@ -127,9 +143,26 @@ def _icon_and_pool(item_type: str) -> tuple[str, dict]:
         return "🎂", _BIRTHDAY_PHRASES
     if item_type == "anniversary":
         return "🕯️", _ANNIVERSARY_PHRASES
+    if item_type == "special_day":
+        return "💝", _SPECIAL_DAY_PHRASES
     if item_type == "task":
         return "📝", _TASK_PHRASES
     return "🔧", _DUE_PHRASES  # service / maintenance
+
+
+def _years_suffix(reminder: UpcomingReminder) -> str:
+    """" (N năm)" for a yearly event whose original year is known (date1),
+    so a ngày kỉ niệm reads "Ngày cưới (10 năm)". Empty when N < 1."""
+    d1 = reminder.item.date1
+    if d1 is None:
+        return ""
+    if reminder.item.date1_is_lunar:
+        # date1 is a lunar date -> compare lunar years (a lunar month-12
+        # event can fall in January of the next solar year).
+        years = solar_to_lunar(reminder.occurs_on).year - d1.year
+    else:
+        years = reminder.occurs_on.year - d1.year
+    return f" ({years} năm)" if years >= 1 else ""
 
 
 def _sentence_for(reminder: UpcomingReminder) -> tuple[str, str]:
@@ -139,6 +172,7 @@ def _sentence_for(reminder: UpcomingReminder) -> tuple[str, str]:
     choices = pool.get(reminder.days_until, pool["default"])
     sentence = random.choice(choices).format(
         title=reminder.item.title, days=reminder.days_until,
+        years=_years_suffix(reminder),
     )
     return icon, sentence
 
@@ -169,9 +203,12 @@ def _format_notification(reminders: list[UpcomingReminder]) -> tuple[str, str]:
         return title, sentence
 
     has_birthday = any(r.item.type in _BIRTHDAY_TYPES for r in reminders)
+    has_special_day = any(r.item.type == "special_day" for r in reminders)
     has_anniversary = any(r.item.type == "anniversary" for r in reminders)
     if has_birthday:
         title = "🎂 Vài điều đặc biệt sắp tới"
+    elif has_special_day:
+        title = "💝 Vài điều đặc biệt sắp tới"
     elif has_anniversary:
         title = "🕯️ Vài điều cần nhớ sắp tới"
     else:

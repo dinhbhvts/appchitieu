@@ -22,8 +22,13 @@ from app.schemas.notebook_item import (
 logger = logging.getLogger("vibeapp.notebook_item")
 
 # Built-in type keys that recur every year on a fixed (month, day) - birthday
-# for the living, anniversary for the deceased (ngày giỗ).
-_YEARLY_RECURRING_TYPES = ("birthday", "anniversary")
+# for the living, anniversary for the deceased (ngày giỗ), special_day for
+# the family's own "Ngày kỉ niệm" (ngày cưới, ngày quen nhau...).
+_YEARLY_RECURRING_TYPES = ("birthday", "anniversary", "special_day")
+# Built-in type keys that get their own Google Drive subfolder (named after
+# "Tên hồ sơ" / profile_name) for file attachments - personal_info (giấy tờ
+# của từng người) and document (Hồ sơ: sổ đỏ, hợp đồng...). Same handling.
+_DRIVE_FOLDER_TYPES = ("personal_info", "document")
 # Built-in type keys whose date2 ("ngày hết hạn / đến hạn kế tiếp") is a
 # one-off upcoming due date, not a yearly recurrence. "task" reuses date2 as
 # "Ngày cần hoàn thành" (Tạo nhắc việc); "periodic" reuses it as "Ngày đến
@@ -61,13 +66,13 @@ def create_item(db: Session, payload: NotebookItemCreate, actor_id=None):
     data["updated_by"] = actor_id
     row = repo.create(db, data)
 
-    # type=personal_info with a "Tên hồ sơ": auto-create its own Drive
-    # subfolder so this person's attachments land there instead of the
+    # type=personal_info/document with a "Tên hồ sơ": auto-create its own
+    # Drive subfolder so this row's attachments land there instead of the
     # shared root folder - see notebook_attachment_service.upload_attachment.
     # Best-effort: if Drive isn't configured (or the call otherwise fails),
     # the item is still saved fine - it just falls back to the shared root
     # folder for attachments, same as before this feature existed.
-    if row.type == "personal_info" and row.profile_name:
+    if row.type in _DRIVE_FOLDER_TYPES and row.profile_name:
         try:
             folder = drive.create_folder(row.profile_name)
             repo.update(db, row, {"drive_folder_id": folder["id"]})
@@ -122,7 +127,7 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
     days - for the Dashboard's "sắp tới" (upcoming) list.
 
     Covers:
-      - birthday / anniversary: yearly recurrence via date1 (converted from
+      - birthday / anniversary / special_day: yearly recurrence via date1 (converted from
         lunar to solar first if date1_is_lunar).
       - personal_info: yearly recurrence via date1 (Ngày sinh), same as
         type=birthday, but only when remind_birthday is True (default) -
@@ -145,7 +150,8 @@ def get_upcoming(db: Session, days: int = 30, today: date_type | None = None) ->
     drives a còn-hạn/hết-hạn color on the Tiện ích list (frontend-only), not
     a Dashboard reminder.
 
-    Other types (address, account, note, child_milestone, custom types) have
+    Other types (address, account, note, child_milestone, document, custom
+    types) have
     no natural "upcoming" concept and are not included.
     """
     today = today or date_type.today()
@@ -212,7 +218,8 @@ def _yearly_occurrence_in_month(
 
 def get_calendar_events(db: Session, year: int, month: int) -> list[CalendarEvent]:
     """Every notebook-based event landing on a day of solar (year, month) -
-    birthday/personal_info/anniversary (yearly recurring, lunar-aware) and
+    birthday/personal_info/anniversary/special_day (yearly recurring,
+    lunar-aware) and
     task due dates (one-off, date2). Powers the event-highlight dots on the
     Tổng quan month-calendar view (see /lunar/month for the day grid itself).
     """
@@ -238,12 +245,12 @@ def get_calendar_events(db: Session, year: int, month: int) -> list[CalendarEven
             )
             if occurs_on:
                 events.append(CalendarEvent(date=occurs_on, category="birthday", title=item.title))
-        elif item.type == "anniversary" and item.date1:
+        elif item.type in ("anniversary", "special_day") and item.date1:
             occurs_on = _yearly_occurrence_in_month(
                 item.date1, item.date1_is_lunar, year, month, lunar_lookup,
             )
             if occurs_on:
-                events.append(CalendarEvent(date=occurs_on, category="anniversary", title=item.title))
+                events.append(CalendarEvent(date=occurs_on, category=item.type, title=item.title))
         elif item.type == "task" and item.date2 and not item.is_completed:
             if month_start <= item.date2 <= month_end:
                 events.append(CalendarEvent(date=item.date2, category="task", title=item.title))

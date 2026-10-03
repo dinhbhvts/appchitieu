@@ -58,6 +58,8 @@ DEFAULT_NOTEBOOK_TYPES = [
     ("warranty", "Bảo hành", "🛡️"),
     ("periodic", "Định kỳ", "🔁"),
     ("website", "Trang web", "🔗"),
+    ("special_day", "Ngày kỉ niệm", "💝"),
+    ("document", "Hồ sơ", "📂"),
 ]
 
 

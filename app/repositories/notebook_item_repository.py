@@ -30,7 +30,7 @@ def list_all(
     The search is a simple case-insensitive "contains" match across every
     non-sensitive text field (title, relation, phone, address, system,
     username, info, tags, note, full_name, id_number, hometown,
-    birth_cert_no, health_insurance_no) - approximate on purpose, per the
+    birth_cert_no, health_insurance_no, document_type, document_no) - approximate on purpose, per the
     "tìm tương đối" requirement. The encrypted password is never searched.
     """
     stmt = select(NotebookItem).where(NotebookItem.is_deleted.is_(False))
@@ -55,6 +55,8 @@ def list_all(
                 NotebookItem.hometown.ilike(like),
                 NotebookItem.birth_cert_no.ilike(like),
                 NotebookItem.health_insurance_no.ilike(like),
+                NotebookItem.document_type.ilike(like),
+                NotebookItem.document_no.ilike(like),
             )
         )
     stmt = stmt.order_by(NotebookItem.type, NotebookItem.title)

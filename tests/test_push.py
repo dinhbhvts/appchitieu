@@ -156,3 +156,23 @@ def test_run_daily_sends_and_prunes_expired_subscription(client):
         push_routes.settings.notify_cron_secret = ""
         push_service.settings.vapid_public_key = ""
         push_service.settings.vapid_private_key = ""
+
+
+def test_special_day_phrasing_includes_years():
+    item = NotebookItemRead(id=1, type="special_day", title="Ngày cưới",
+                            date1=date(2015, 1, 1))
+    occurs = date(2026, 1, 1)
+    r = UpcomingReminder(item=item, occurs_on=occurs, days_until=0)
+    title, body = push_service._format_notification([r])
+    assert title == "💝 Ngày cưới"
+    assert "kỉ niệm" in body.lower()
+    assert "(11 năm)" in body
+
+
+def test_special_day_title_when_mixed_without_birthday():
+    reminders = [
+        _reminder("task", "Đóng tiền điện", 1),
+        _reminder("special_day", "Ngày cưới", 2),
+    ]
+    title, _ = push_service._format_notification(reminders)
+    assert title == "💝 Vài điều đặc biệt sắp tới"
