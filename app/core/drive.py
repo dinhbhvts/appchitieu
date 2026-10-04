@@ -33,8 +33,9 @@ Vietnamese message - nothing else in the app depends on this module.
 
 import io
 import logging
+import socket
+import ssl
 import traceback
-from functools import lru_cache
 
 from app.core.config import get_settings
 
@@ -42,6 +43,18 @@ logger = logging.getLogger("vibeapp.drive")
 
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
 _SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+# Network robustness for uploads (a real incident: uploading 6 files in a row,
+# one failed with "TimeoutError: The write operation timed out" and simply
+# succeeded when tried again by hand):
+#   - a FRESH http connection per call (see _service) instead of one cached
+#     client reusing a keep-alive socket that may have gone stale while the
+#     Render instance sat idle;
+#   - an explicit, generous timeout (a multi-MB photo over a slow link);
+#   - googleapiclient's built-in retry with exponential backoff on transient
+#     failures (socket timeout, SSL/connection reset, HTTP 429/5xx).
+_HTTP_TIMEOUT_SEC = 120
+_NUM_RETRIES = 3
 
 
 class DriveNotConfigured(Exception):
@@ -118,15 +131,23 @@ def _credentials():
     return creds
 
 
-# Cached per-process - building the API client is not free. Credentials are
-# rebuilt (and refreshed) on every call to _credentials(), so a revoked token
-# is still caught promptly even though the client object itself is cached.
-@lru_cache
-def _service():
+def _service(creds=None):
+    """A Drive API client on a brand-new http connection.
+
+    Deliberately NOT cached any more: a cached client keeps reusing the same
+    keep-alive socket, which can silently go stale while the server sits idle
+    and then time out on the next write. Building one per call is cheap -
+    the Drive v3 discovery document ships with the library (static
+    discovery), so no extra network round-trip is made here.
+    """
+    import httplib2
+    from google_auth_httplib2 import AuthorizedHttp
     from googleapiclient.discovery import build
 
+    creds = creds or _credentials()
     try:
-        return build("drive", "v3", credentials=_credentials(), cache_discovery=False)
+        http = AuthorizedHttp(creds, http=httplib2.Http(timeout=_HTTP_TIMEOUT_SEC))
+        return build("drive", "v3", http=http, cache_discovery=False)
     except (DriveNotConfigured, DriveError):
         raise
     except Exception as e:
@@ -163,40 +184,45 @@ def upload_file(
     folder_id = parent_folder_id or settings.google_drive_folder_id
     from googleapiclient.http import MediaIoBaseUpload
 
-    # Credentials are re-fetched (and refreshed) directly here rather than
-    # relying only on the cached _service() client, since an access token
-    # obtained at process-start can expire (~1h) long before the process
-    # restarts - _service()'s cache is for the API client object, not the
-    # token; googleapiclient does auto-refresh internally too, but calling
-    # _credentials() up front turns an expired/revoked token into a clear
-    # DriveError immediately instead of a confusing mid-call failure.
-    _credentials()
+    # Credentials are fetched (and refreshed) up front so an expired/revoked
+    # token becomes a clear DriveError immediately instead of a confusing
+    # mid-call failure.
+    creds = _credentials()
     media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
     metadata = {"name": filename, "parents": [folder_id]}
     try:
         return (
-            _service()
+            _service(creds)
             .files()
             .create(body=metadata, media_body=media, fields="id, name, webViewLink")
-            .execute()
+            .execute(num_retries=_NUM_RETRIES)
         )
     except (DriveNotConfigured, DriveError):
         raise
     except Exception as e:
-        # Most common real-world cause: GOOGLE_DRIVE_FOLDER_ID is wrong, or
-        # points at a folder this Google account can't write to. Logged with
-        # full traceback here (this except block converts to a caught
-        # DriveError -> HTTPException in the route, which never goes through
-        # main.py's unhandled-exception logger) so the real cause is visible
-        # in server logs even when str(e) itself is unhelpful/empty.
+        # Logged with full traceback here (this except block converts to a
+        # caught DriveError -> HTTPException in the route, which never goes
+        # through main.py's unhandled-exception logger) so the real cause is
+        # visible in server logs even when str(e) itself is unhelpful/empty.
         logger.error("Lỗi tải file lên Google Drive:\n%s", traceback.format_exc())
+        if _is_transient(e):
+            raise DriveError(
+                f"Kết nối tới Google Drive bị gián đoạn hoặc quá thời gian khi tải "
+                f"file '{filename}' (đã tự thử lại {_NUM_RETRIES} lần). Vui lòng "
+                f"thử tải lại file này. Chi tiết lỗi: {_describe_exception(e)}"
+            ) from e
+        if _http_status(e) == 404:
+            raise DriveError(
+                "Tải file lên Google Drive thất bại: không tìm thấy thư mục đích. "
+                "Kiểm tra lại: (1) GOOGLE_DRIVE_FOLDER_ID (đang dùng: "
+                f"{settings.google_drive_folder_id}) đúng với ID thư mục trong Drive "
+                "của chính tài khoản đã đăng nhập lúc lấy refresh token (lấy ID từ "
+                "URL thư mục, không phải cả đường link), (2) thư mục đó (hoặc thư "
+                "mục hồ sơ riêng) chưa bị xóa/di chuyển. "
+                f"Chi tiết lỗi: {_describe_exception(e)}"
+            ) from e
         raise DriveError(
-            "Tải file lên Google Drive thất bại. Kiểm tra lại: (1) "
-            f"GOOGLE_DRIVE_FOLDER_ID (đang dùng: {settings.google_drive_folder_id}) "
-            "đúng với ID thư mục trong Drive của chính tài khoản đã đăng nhập lúc "
-            "lấy refresh token (lấy ID từ URL thư mục, không phải cả đường link), "
-            "(2) thư mục đó chưa bị xóa/di chuyển. "
-            f"Chi tiết lỗi: {_describe_exception(e)}"
+            f"Tải file lên Google Drive thất bại. Chi tiết lỗi: {_describe_exception(e)}"
         ) from e
 
 
@@ -215,14 +241,17 @@ def create_folder(name: str, parent_folder_id: str | None = None) -> dict:
             "xem hướng dẫn thiết lập trong TRIEN_KHAI.md mục 3C."
         )
     folder_id = parent_folder_id or settings.google_drive_folder_id
-    _credentials()
+    creds = _credentials()
     metadata = {
         "name": name,
         "mimeType": "application/vnd.google-apps.folder",
         "parents": [folder_id],
     }
     try:
-        return _service().files().create(body=metadata, fields="id, name").execute()
+        return (
+            _service(creds).files().create(body=metadata, fields="id, name")
+            .execute(num_retries=_NUM_RETRIES)
+        )
     except (DriveNotConfigured, DriveError):
         raise
     except Exception as e:
@@ -236,13 +265,13 @@ def rename_file(drive_file_id: str, new_name: str) -> dict:
     """Rename a file already on Drive (keeps the same content/id/link) - used
     when the user renames an attachment in the app, to keep the Drive file
     name in sync. Raises the same DriveNotConfigured/DriveError as upload_file."""
-    _credentials()
+    creds = _credentials()
     try:
         return (
-            _service()
+            _service(creds)
             .files()
             .update(fileId=drive_file_id, body={"name": new_name}, fields="id, name")
-            .execute()
+            .execute(num_retries=_NUM_RETRIES)
         )
     except (DriveNotConfigured, DriveError):
         raise
@@ -251,6 +280,37 @@ def rename_file(drive_file_id: str, new_name: str) -> dict:
         raise DriveError(
             f"Đổi tên file trên Google Drive thất bại. Chi tiết lỗi: {_describe_exception(e)}"
         ) from e
+
+
+def _http_status(e: Exception) -> int | None:
+    """HTTP status of a googleapiclient HttpError, else None."""
+    try:
+        from googleapiclient.errors import HttpError
+
+        if isinstance(e, HttpError):
+            return int(getattr(e.resp, "status", 0) or 0) or None
+    except (ImportError, ValueError, TypeError):
+        pass
+    return None
+
+
+def _is_transient(e: Exception) -> bool:
+    """Network hiccup / Google-side overload - worth just trying again, as
+    opposed to a configuration problem (wrong folder id, revoked token...)."""
+    status = _http_status(e)
+    if status is not None:
+        return status == 429 or status >= 500
+    try:
+        import httplib2
+
+        if isinstance(e, httplib2.ServerNotFoundError):
+            return True
+    except ImportError:
+        pass
+    # socket.timeout is TimeoutError on Python 3.10+; ConnectionError covers
+    # resets/aborts; ssl.SSLError covers "The write operation timed out"
+    # variants raised from inside the TLS layer.
+    return isinstance(e, (socket.timeout, TimeoutError, ConnectionError, ssl.SSLError))
 
 
 def _describe_exception(e: Exception) -> str:
@@ -292,6 +352,6 @@ def delete_file(drive_file_id: str) -> None:
     takes a little space) rather than blocking the user's delete action.
     """
     try:
-        _service().files().delete(fileId=drive_file_id).execute()
+        _service().files().delete(fileId=drive_file_id).execute(num_retries=_NUM_RETRIES)
     except Exception:
         pass

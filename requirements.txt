@@ -29,9 +29,10 @@ lunarcalendar>=0.0.9
 pywebpush>=2.0
 
 # Upload file dinh kem (Ho so tien ich > Thong tin ca nhan) len Google Drive
-# cua chu app, qua Service Account (khong can dang nhap OAuth tuong tac).
+# cua chu app, qua OAuth refresh token cua chinh tai khoan do (xem app/core/drive.py).
 google-api-python-client>=2.150
 google-auth>=2.35
+google-auth-httplib2>=0.2
 python-multipart>=0.0.12
 
 # GHI CHU: PostgreSQL (dung khi trien khai len may chu) can them driver.
