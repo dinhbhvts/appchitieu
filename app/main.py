@@ -22,6 +22,7 @@ from app.core.seed import seed
 # before we call create_all(). Do not remove this import.
 from app import models  # noqa: F401
 from app.api.routes import (
+    album,
     assets,
     auth,
     categories,
@@ -138,6 +139,7 @@ app.include_router(push.cron_router)
 
 # Protected endpoints: every data route requires a valid login token.
 _auth = [Depends(get_current_user)]
+app.include_router(album.router, dependencies=_auth)
 app.include_router(assets.router, dependencies=_auth)
 app.include_router(categories.router, dependencies=_auth)
 app.include_router(notebook_items.router, dependencies=_auth)

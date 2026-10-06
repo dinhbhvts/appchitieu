@@ -35,6 +35,9 @@ google-auth>=2.35
 google-auth-httplib2>=0.2
 python-multipart>=0.0.12
 
+# Khung anh ky thuat so (Tong quan): xoay theo EXIF + thu nho anh truoc khi luu.
+Pillow>=10.0
+
 # GHI CHU: PostgreSQL (dung khi trien khai len may chu) can them driver.
 # KHONG cai o buoc chay thu. Khi trien khai production moi chay:
 #     python -m pip install -r requirements-prod.txt

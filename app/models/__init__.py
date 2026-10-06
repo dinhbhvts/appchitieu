@@ -5,6 +5,7 @@ imported at least once. Importing them in this package __init__ guarantees that
 happens as soon as `app.models` is imported anywhere.
 """
 
+from app.models.album_photo import AlbumPhoto
 from app.models.asset import AssetSnapshot
 from app.models.category import Category
 from app.models.notebook_attachment import NotebookAttachment
@@ -23,6 +24,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 
 __all__ = [
+    "AlbumPhoto",
     "AssetSnapshot",
     "Category",
     "NotebookAttachment",
