@@ -672,3 +672,70 @@ def test_other_types_do_not_create_drive_folder(client, monkeypatch):
         "type": "note", "title": "Ghi chú", "profile_name": "Không tạo",
     })
     assert calls == []
+
+
+# ---- Mua hàng (purchase) ----
+
+def test_purchase_type_is_seeded(client):
+    keys = {t["key"]: t["name"] for t in client.get("/notebook-types").json()}
+    assert keys.get("purchase") == "Mua hàng"
+
+
+def test_purchase_fields_roundtrip_searchable_and_not_upcoming(client):
+    import datetime
+    today = datetime.date.today()
+    r = client.post("/notebook-items", json={
+        "type": "purchase", "title": "Tủ lạnh LG",
+        "document_type": "Điện lạnh", "info": "Inverter 420L, màu bạc",
+        "date1": today.isoformat(), "address": "Điện máy Xanh Cầu Giấy",
+        "amount": 15990000, "tags": "#bep", "note": "Trả góp 0%",
+    })
+    assert r.status_code == 201
+    data = r.json()
+    assert data["document_type"] == "Điện lạnh"
+    assert data["address"] == "Điện máy Xanh Cầu Giấy"
+    assert data["info"] == "Inverter 420L, màu bạc"
+    assert float(data["amount"]) == 15990000
+
+    found = client.get("/notebook-items", params={"q": "Điện máy Xanh"}).json()
+    assert any(i["id"] == data["id"] for i in found)
+    found = client.get("/notebook-items", params={"q": "Inverter"}).json()
+    assert any(i["id"] == data["id"] for i in found)
+
+    upcoming = client.get("/notebook-items/upcoming", params={"days": 400}).json()
+    assert all(u["item"]["id"] != data["id"] for u in upcoming)
+
+
+def test_purchase_invoice_name_creates_drive_folder(client, monkeypatch):
+    from app.core import drive
+
+    created_folders = []
+    monkeypatch.setattr(
+        drive, "create_folder",
+        lambda name, parent_folder_id=None: created_folders.append(name) or {"id": "folder-inv", "name": name},
+    )
+    upload_calls = []
+
+    def fake_upload(filename, mime_type, content, parent_folder_id=None):
+        upload_calls.append(parent_folder_id)
+        return {"id": "file-1", "name": filename, "webViewLink": "https://drive/f"}
+
+    monkeypatch.setattr(drive, "upload_file", fake_upload)
+
+    created = client.post("/notebook-items", json={
+        "type": "purchase", "title": "Tủ lạnh LG",
+        "profile_name": "Hóa đơn Tủ lạnh LG",
+    }).json()
+    assert created["profile_name"] == "Hóa đơn Tủ lạnh LG"
+    assert created_folders == ["Hóa đơn Tủ lạnh LG"]
+
+    for name in ("hoa_don.jpg", "phieu_bao_hanh.pdf"):
+        r = client.post(
+            f"/notebook-items/{created['id']}/attachments",
+            files={"file": (name, b"bytes", "application/pdf" if name.endswith("pdf") else "image/jpeg")},
+        )
+        assert r.status_code == 201
+    assert upload_calls == ["folder-inv", "folder-inv"]
+
+    r = client.put(f"/notebook-items/{created['id']}", json={"profile_name": "Khác"})
+    assert r.json()["profile_name"] == "Hóa đơn Tủ lạnh LG"

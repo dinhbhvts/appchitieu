@@ -53,6 +53,13 @@ Which columns a given `type` actually uses (for the ADD/EDIT form):
                          file attachments trên Drive - xử lý Drive y hệt
                          personal_info (xem notebook_item_service
                          ._DRIVE_FOLDER_TYPES). Không có nhắc nhở.
+  - purchase:            title, document_type (Loại hàng hóa), info
+                         (Thông tin hàng hóa), date1 (Ngày mua hàng),
+                         address (Nơi mua hàng), amount (Số tiền mua),
+                         tags, note, profile_name
+                         (Hóa đơn mua hàng - tên thư mục trên Drive, chỉ đặt
+                         lúc tạo) + file attachments (ảnh/PDF hóa đơn) - xử
+                         lý Drive y hệt document. Không có nhắc nhở.
   - note / any custom
     type the user adds:  title, tags, info, note
 This mapping is a UI concern (which fields to show), not enforced here.
@@ -90,6 +97,8 @@ class NotebookItem(Base):
     relation: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # "Địa chỉ" (address/personal_info) - reused as "Nơi mua hàng" (cửa
+    # hàng, sàn TMĐT...) for type=purchase.
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Primary date: birth date, death date, service start date, last
@@ -179,8 +188,9 @@ class NotebookItem(Base):
     # table: a two-person household doesn't need managed document kinds.
     document_type: Mapped[str | None] = mapped_column(
         String(100), nullable=True,
-        comment="Chỉ áp dụng cho type=document: 'Loại hồ sơ' (vd Sổ đỏ, "
-                "Hợp đồng, Bằng cấp, Giấy tờ xe) - nhập tự do.",
+        comment="type=document: 'Loại hồ sơ' (vd Sổ đỏ, Hợp đồng, Bằng "
+                "cấp, Giấy tờ xe); type=purchase: 'Loại hàng hóa' (vd Điện "
+                "tử, Gia dụng, Nội thất) - nhập tự do.",
     )
     # "Số giấy tờ" - the document's own number (số sổ, số hợp đồng...).
     document_no: Mapped[str | None] = mapped_column(
@@ -227,8 +237,8 @@ class NotebookItem(Base):
     # Drive folder name - see app/services/notebook_item_service.py.
     profile_name: Mapped[str | None] = mapped_column(
         String(150), nullable=True,
-        comment="Chỉ áp dụng cho type=personal_info và type=document: 'Tên "
-                "hồ sơ' - đặt 1 lần lúc tạo, dùng làm tên thư mục con trên "
+        comment="Chỉ áp dụng cho type=personal_info, document, purchase: "
+                "'Tên hồ sơ' (purchase: 'Hóa đơn mua hàng') - đặt 1 lần lúc tạo, dùng làm tên thư mục con trên "
                 "Google Drive để chứa file đính kèm của mục này. Không cho "
                 "đổi sau khi tạo (tránh lệch tên thư mục đã tạo trên Drive).",
     )

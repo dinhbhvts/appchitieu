@@ -27,8 +27,9 @@ logger = logging.getLogger("vibeapp.notebook_item")
 _YEARLY_RECURRING_TYPES = ("birthday", "anniversary", "special_day")
 # Built-in type keys that get their own Google Drive subfolder (named after
 # "Tên hồ sơ" / profile_name) for file attachments - personal_info (giấy tờ
-# của từng người) and document (Hồ sơ: sổ đỏ, hợp đồng...). Same handling.
-_DRIVE_FOLDER_TYPES = ("personal_info", "document")
+# của từng người), document (Hồ sơ: sổ đỏ, hợp đồng...) and purchase (Mua
+# hàng: "Hóa đơn mua hàng" = profile_name). Same handling.
+_DRIVE_FOLDER_TYPES = ("personal_info", "document", "purchase")
 # Built-in type keys whose date2 ("ngày hết hạn / đến hạn kế tiếp") is a
 # one-off upcoming due date, not a yearly recurrence. "task" reuses date2 as
 # "Ngày cần hoàn thành" (Tạo nhắc việc); "periodic" reuses it as "Ngày đến

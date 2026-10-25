@@ -60,6 +60,7 @@ DEFAULT_NOTEBOOK_TYPES = [
     ("website", "Trang web", "🔗"),
     ("special_day", "Ngày kỉ niệm", "💝"),
     ("document", "Hồ sơ", "📂"),
+    ("purchase", "Mua hàng", "🛒"),
 ]
 
 
