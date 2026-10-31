@@ -16,11 +16,13 @@ Which columns a given `type` actually uses (for the ADD/EDIT form):
   - birthday:          title, relation, date1
   - anniversary:        title, relation, date1 (+ date1_is_lunar),
   - service:            title, date1, date2, recurrence_days, amount
-  - maintenance:        title, date1, date2, recurrence_days, is_completed
+  - maintenance:        title, date1, date2, recurrence_days, is_completed,
+                         profile_name + file attachments (Drive, như document)
                          (dùng cho THIẾT BỊ - xem "periodic" bên dưới cho
                          việc định kỳ dùng cho NGƯỜI)
   - warranty:            title, date1 (Ngày mua), date2 (Hạn bảo hành),
-                         amount, tags, note - KHÔNG có nhắc nhở ở Tổng quan
+                         amount, tags, note, profile_name + file attachments
+                         (phiếu bảo hành/hóa đơn trên Drive) - KHÔNG có nhắc nhở ở Tổng quan
                          (xem notebook_item_service._DUE_DATE_TYPES), chỉ
                          hiển thị màu còn hạn/hết hạn trên danh sách
   - periodic:            title, date1 (Ngày thực hiện), date2 (Ngày đến hạn
@@ -237,8 +239,9 @@ class NotebookItem(Base):
     # Drive folder name - see app/services/notebook_item_service.py.
     profile_name: Mapped[str | None] = mapped_column(
         String(150), nullable=True,
-        comment="Chỉ áp dụng cho type=personal_info, document, purchase: "
-                "'Tên hồ sơ' (purchase: 'Hóa đơn mua hàng') - đặt 1 lần lúc tạo, dùng làm tên thư mục con trên "
+        comment="Chỉ áp dụng cho type=personal_info, document, purchase, "
+                "maintenance, warranty: "
+                "'Tên hồ sơ' (purchase: 'Hóa đơn mua hàng') - đặt 1 lần (lúc tạo, hoặc lúc sửa nếu đang trống), dùng làm tên thư mục con trên "
                 "Google Drive để chứa file đính kèm của mục này. Không cho "
                 "đổi sau khi tạo (tránh lệch tên thư mục đã tạo trên Drive).",
     )

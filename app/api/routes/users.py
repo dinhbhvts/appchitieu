@@ -1,13 +1,14 @@
 """HTTP endpoints for users."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user, hash_password, verify_password
 from app.models.user import User
 from app.repositories import user_repository as repo
-from app.schemas.user import UserCreate, UserRead, ChangePasswordRequest
+from app.schemas.user import ChangePasswordRequest, UserCreate, UserProfileUpdate, UserRead
+from app.services import user_profile_service as profile_service
 
 # All routes in this file share the /users prefix and the "users" doc tag.
 router = APIRouter(prefix="/users", tags=["users"])
@@ -69,3 +70,46 @@ def change_password(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+@router.patch("/me/profile", response_model=UserRead)
+def update_profile(
+    payload: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Đổi màu đại diện và/hoặc avatar gợi ý (chibi:N) của người đang đăng
+    nhập. Gửi null để về mặc định."""
+    try:
+        return profile_service.update_profile(
+            db, current_user, payload.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/me/avatar", response_model=UserRead)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Tải ảnh avatar từ máy - tự cắt vuông giữa và thu nhỏ 256px."""
+    content = await file.read()
+    try:
+        return profile_service.upload_avatar(db, current_user, content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{user_id}/avatar")
+def get_avatar(
+    user_id: int,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ảnh avatar đã tải lên (JPEG). URL nên kèm ?v=avatar_version để cache."""
+    data = profile_service.get_avatar_image(db, user_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Chưa có ảnh avatar")
+    return Response(content=data, media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=31536000, immutable"})

@@ -27,9 +27,10 @@ logger = logging.getLogger("vibeapp.notebook_item")
 _YEARLY_RECURRING_TYPES = ("birthday", "anniversary", "special_day")
 # Built-in type keys that get their own Google Drive subfolder (named after
 # "Tên hồ sơ" / profile_name) for file attachments - personal_info (giấy tờ
-# của từng người), document (Hồ sơ: sổ đỏ, hợp đồng...) and purchase (Mua
-# hàng: "Hóa đơn mua hàng" = profile_name). Same handling.
-_DRIVE_FOLDER_TYPES = ("personal_info", "document", "purchase")
+# của từng người), document (Hồ sơ: sổ đỏ, hợp đồng...), purchase (Mua
+# hàng: "Hóa đơn mua hàng" = profile_name), maintenance (Bảo trì) and
+# warranty (Bảo hành) - phiếu bảo hành/hóa đơn sửa chữa. Same handling.
+_DRIVE_FOLDER_TYPES = ("personal_info", "document", "purchase", "maintenance", "warranty")
 # Built-in type keys whose date2 ("ngày hết hạn / đến hạn kế tiếp") is a
 # one-off upcoming due date, not a yearly recurrence. "task" reuses date2 as
 # "Ngày cần hoàn thành" (Tạo nhắc việc); "periodic" reuses it as "Ngày đến
@@ -73,17 +74,24 @@ def create_item(db: Session, payload: NotebookItemCreate, actor_id=None):
     # Best-effort: if Drive isn't configured (or the call otherwise fails),
     # the item is still saved fine - it just falls back to the shared root
     # folder for attachments, same as before this feature existed.
-    if row.type in _DRIVE_FOLDER_TYPES and row.profile_name:
-        try:
-            folder = drive.create_folder(row.profile_name)
-            repo.update(db, row, {"drive_folder_id": folder["id"]})
-        except Exception:
-            logger.warning(
-                "Không tạo được thư mục Drive cho hồ sơ '%s' (item id=%s) - "
-                "file đính kèm sẽ dùng thư mục chung.",
-                row.profile_name, row.id, exc_info=True,
-            )
+    _ensure_drive_folder(db, row)
     return row
+
+
+def _ensure_drive_folder(db: Session, row) -> None:
+    """Create the row's own Drive subfolder (named after profile_name) if it
+    is a Drive-folder type, has a profile_name and has no folder yet."""
+    if row.type not in _DRIVE_FOLDER_TYPES or not row.profile_name or row.drive_folder_id:
+        return
+    try:
+        folder = drive.create_folder(row.profile_name)
+        repo.update(db, row, {"drive_folder_id": folder["id"]})
+    except Exception:
+        logger.warning(
+            "Không tạo được thư mục Drive cho hồ sơ '%s' (item id=%s) - "
+            "file đính kèm sẽ dùng thư mục chung.",
+            row.profile_name, row.id, exc_info=True,
+        )
 
 
 def update_item(db: Session, item_id: int, payload: NotebookItemUpdate, actor_id=None):
@@ -91,8 +99,18 @@ def update_item(db: Session, item_id: int, payload: NotebookItemUpdate, actor_id
     if row is None:
         return None
     changes = _prepare_data(db, payload.model_dump(exclude_unset=True))
+    # "Tên hồ sơ" chỉ đặt được 1 LẦN: khi mục chưa có (vd mục Bảo trì/Bảo
+    # hành tạo từ trước khi có tính năng này) thì cho đặt và tạo thư mục
+    # Drive; đã có rồi thì bỏ qua (tránh lệch tên thư mục đã tạo trên Drive).
+    new_profile = (changes.pop("profile_name", None) or "").strip()
+    if new_profile and not row.profile_name and \
+            changes.get("type", row.type) in _DRIVE_FOLDER_TYPES:
+        changes["profile_name"] = new_profile[:150]
     changes["updated_by"] = actor_id
-    return repo.update(db, row, changes)
+    row = repo.update(db, row, changes)
+    if "profile_name" in changes:
+        _ensure_drive_folder(db, row)
+    return row
 
 
 def delete_item(db: Session, item_id: int) -> bool:

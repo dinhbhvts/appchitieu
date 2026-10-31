@@ -739,3 +739,42 @@ def test_purchase_invoice_name_creates_drive_folder(client, monkeypatch):
 
     r = client.put(f"/notebook-items/{created['id']}", json={"profile_name": "Khác"})
     assert r.json()["profile_name"] == "Hóa đơn Tủ lạnh LG"
+
+
+# ---- Bảo trì / Bảo hành: hồ sơ đính kèm trên Drive ----
+
+def test_maintenance_and_warranty_create_drive_folder(client, monkeypatch):
+    from app.core import drive
+    created = []
+    monkeypatch.setattr(
+        drive, "create_folder",
+        lambda name, parent_folder_id=None: created.append(name) or {"id": f"f-{len(created)}", "name": name},
+    )
+    for t in ("maintenance", "warranty"):
+        r = client.post("/notebook-items", json={
+            "type": t, "title": f"Mục {t}", "profile_name": f"Hồ sơ {t}",
+        })
+        assert r.json()["profile_name"] == f"Hồ sơ {t}"
+    assert created == ["Hồ sơ maintenance", "Hồ sơ warranty"]
+
+
+def test_profile_name_can_be_set_once_when_empty(client, monkeypatch):
+    from app.core import drive
+    created = []
+    monkeypatch.setattr(
+        drive, "create_folder",
+        lambda name, parent_folder_id=None: created.append(name) or {"id": "f-x", "name": name},
+    )
+    item = client.post("/notebook-items", json={"type": "warranty", "title": "Tủ lạnh"}).json()
+    assert item["profile_name"] is None and created == []
+    r = client.put(f"/notebook-items/{item['id']}", json={"profile_name": "BH Tủ lạnh"})
+    assert r.json()["profile_name"] == "BH Tủ lạnh"
+    assert created == ["BH Tủ lạnh"]
+    # Đã đặt rồi -> khóa, không tạo thêm thư mục.
+    r = client.put(f"/notebook-items/{item['id']}", json={"profile_name": "Tên khác"})
+    assert r.json()["profile_name"] == "BH Tủ lạnh"
+    assert created == ["BH Tủ lạnh"]
+    # Loại không có hồ sơ Drive: bỏ qua.
+    note = client.post("/notebook-items", json={"type": "note", "title": "Ghi chú"}).json()
+    r = client.put(f"/notebook-items/{note['id']}", json={"profile_name": "X"})
+    assert created == ["BH Tủ lạnh"]

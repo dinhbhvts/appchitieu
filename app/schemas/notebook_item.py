@@ -48,10 +48,10 @@ class NotebookItemBase(BaseModel):
 
 
 class NotebookItemCreate(NotebookItemBase):
-    # "Tên hồ sơ" - only meaningful for type=personal_info/document. Set once here at
-    # creation to auto-create a matching Drive subfolder (see
-    # notebook_item_service.create_item) - deliberately absent from
-    # NotebookItemUpdate below so it can never be changed afterwards.
+    # "Tên hồ sơ" - only meaningful for the Drive-folder types (personal_info,
+    # document, purchase, maintenance, warranty). Set once to auto-create a
+    # matching Drive subfolder (see notebook_item_service). NotebookItemUpdate
+    # accepts it too, but only while the item has none yet - never renamed.
     profile_name: str | None = None
 
 
@@ -86,6 +86,9 @@ class NotebookItemUpdate(BaseModel):
     tags: str | None = None
     note: str | None = None
     is_completed: bool | None = None
+    # Only applied while the item has no profile_name yet (set-once) - see
+    # notebook_item_service.update_item.
+    profile_name: str | None = None
 
 
 class NotebookItemRead(NotebookItemBase):
