@@ -45,6 +45,27 @@ class AssetMonth(BaseModel):
     change_pct: float | None = None  # % change; None if no previous month data
 
 
+class SystemItemBreakdown(BaseModel):
+    """Số liệu thành phần của 1 mục tự động trong tháng - hiện khi bấm 🔒
+    để người dùng tự đối chiếu (GET /assets/system-breakdown).
+
+    kind="account": value = prev_closing + income - expense - transferred_out
+    + transferred_in + interest. kind="stock": value = holdings_total.
+    """
+
+    system_key: str
+    name: str
+    kind: str
+    prev_closing: float = 0
+    income: float = 0
+    expense: float = 0
+    transferred_out: float = 0
+    transferred_in: float = 0
+    interest: float = 0
+    holdings_total: float = 0
+    value: float = 0
+
+
 class AssetHistoryItem(BaseModel):
     """Total net worth for one month - used to draw the month-by-month trend."""
 

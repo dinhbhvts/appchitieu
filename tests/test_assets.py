@@ -447,3 +447,52 @@ def test_recompute_all_works_before_any_month_has_ever_been_viewed(client):
     assert r.status_code == 200
     data = r.json()
     assert data["year"] >= 2026
+
+
+def test_transfer_18m_moves_money_without_inflating_total(client):
+    """Chồng chuyển 18tr cho vợ tháng 11: vợ +18tr, chồng −18tr, tổng tài
+    sản KHÔNG đổi (chỉ là tiền chuyển trong nhà)."""
+    chong, vo = _users(client)
+    client.post("/assets", json={"year": 2026, "month": 7, "name": "Tài khoản vợ", "value": 100_000_000})
+    client.post("/assets", json={"year": 2026, "month": 7, "name": "Tài khoản chồng", "value": 200_000_000})
+    oct_ = client.get("/assets/month", params={"year": 2026, "month": 10}).json()
+    client.post("/transactions", json={
+        "date": "2026-11-05", "type": "transfer", "amount": 18_000_000,
+        "content": "Chuyển cho vợ", "user_id": chong,
+    })
+    nov = client.get("/assets/month", params={"year": 2026, "month": 11}).json()
+    by_name = {i["name"]: i["value"] for i in nov["items"]}
+    assert by_name["Tài khoản vợ"] == 118_000_000
+    assert by_name["Tài khoản chồng"] == 182_000_000
+    assert nov["total"] == oct_["total"]
+
+    parts = {p["system_key"]: p for p in client.get(
+        "/assets/system-breakdown", params={"year": 2026, "month": 11}).json()}
+    vo_p = parts["vo_taikhoan"]
+    assert vo_p["prev_closing"] == 100_000_000
+    assert vo_p["transferred_in"] == 18_000_000
+    assert vo_p["income"] == 0 and vo_p["interest"] == 0
+    assert vo_p["value"] == by_name["Tài khoản vợ"]
+    assert parts["chong_taikhoan"]["transferred_out"] == 18_000_000
+
+
+def test_duplicate_system_rows_are_cleaned_up(client):
+    """2 request cùng mở 1 tháng mới có thể tạo trùng mục tự động -> lần xem
+    sau tự xóa dòng thừa, tổng tài sản không bị cộng 2 lần."""
+    from app.core.database import SessionLocal
+    from app.models.asset import AssetSnapshot
+
+    client.get("/assets/month", params={"year": 2026, "month": 11})
+    with SessionLocal() as db:
+        db.add(AssetSnapshot(year=2026, month=11, name="Tài khoản vợ",
+                             value=18_000_000, system_key="vo_taikhoan"))
+        db.commit()
+    nov = client.get("/assets/month", params={"year": 2026, "month": 11}).json()
+    names = [i["name"] for i in nov["items"]]
+    assert names.count("Tài khoản vợ") == 1
+    assert nov["total"] == sum(i["value"] for i in nov["items"])
+
+
+def test_system_breakdown_before_cutover_is_empty(client):
+    r = client.get("/assets/system-breakdown", params={"year": 2026, "month": 7})
+    assert r.status_code == 200 and r.json() == []

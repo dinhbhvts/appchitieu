@@ -41,6 +41,22 @@ def get_by_system_key(
     return db.scalar(stmt)
 
 
+def list_by_system_key(
+    db: Session, year: int, month: int, system_key: str
+) -> list[AssetSnapshot]:
+    """Every (not deleted) row for this month with this system_key, oldest
+    first. Normally 0 or 1 - more than 1 only if two requests created the
+    month's system rows at the same moment (asset_service then keeps the
+    first and soft-deletes the rest)."""
+    stmt = select(AssetSnapshot).where(
+        AssetSnapshot.year == year,
+        AssetSnapshot.month == month,
+        AssetSnapshot.system_key == system_key,
+        AssetSnapshot.is_deleted.is_(False),
+    ).order_by(AssetSnapshot.id.asc())
+    return list(db.scalars(stmt).all())
+
+
 def get_by_name(db: Session, year: int, month: int, name: str) -> AssetSnapshot | None:
     """Look up a row by its exact display name within one month - used to
     find the historical (pre-system, plain user-entered) closing value for

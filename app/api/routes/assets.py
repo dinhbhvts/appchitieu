@@ -13,6 +13,7 @@ from app.schemas.asset import (
     AssetItemUpdate,
     AssetMonth,
     AssetYearlyItem,
+    SystemItemBreakdown,
 )
 from app.schemas.common import Message
 from app.services import asset_service as service
@@ -24,6 +25,13 @@ router = APIRouter(prefix="/assets", tags=["assets"])
 def get_month(year: int, month: int, db: Session = Depends(get_db)):
     """All asset lines for a month plus the total net worth."""
     return service.get_month(db, year, month)
+
+
+@router.get("/system-breakdown", response_model=list[SystemItemBreakdown])
+def system_breakdown(year: int, month: int, db: Session = Depends(get_db)):
+    """Số liệu thành phần của 4 mục tự động (Tài khoản/Chứng khoán vợ/chồng)
+    trong tháng - để đối chiếu vì sao mục tăng/giảm."""
+    return service.system_breakdown(db, year, month)
 
 
 @router.get("/history", response_model=list[AssetHistoryItem])

@@ -24,6 +24,7 @@ from app.schemas.asset import (
     AssetItemUpdate,
     AssetMonth,
     AssetYearlyItem,
+    SystemItemBreakdown,
 )
 from app.services import report_service, savings_service, stock_service
 
@@ -93,32 +94,16 @@ def _ensure_system_items(db: Session, year: int, month: int) -> None:
     if (py, pm) >= _SYSTEM_START:
         _ensure_system_items(db, py, pm)
 
-    users = {u.name: u for u in user_repository.list_all(db)}
-    start, end = _month_bounds(year, month)
-
-    for key, meta in SYSTEM_ITEMS.items():
-        user = users.get(meta["user_name"])
-        if meta["kind"] == "account":
-            prev_closing = _closing_value(db, py, pm, key)
-            net_held = 0.0
-            interest = 0.0
-            if user is not None:
-                net_held = report_service.period_summary(
-                    db, start=start, end=end, user_id=user.id
-                ).net_held or 0.0
-                interest = savings_service.interest_received_between(
-                    db, user_id=user.id, start=start, end=end
-                )
-            value = prev_closing + net_held + interest
-        else:  # "stock"
-            value = 0.0
-            if user is not None:
-                value = sum(
-                    float(h.value)
-                    for h in stock_service.list_holdings(db, user_id=user.id)
-                )
-
-        existing = repo.get_by_system_key(db, year, month, key)
+    for key, part in _compute_parts(db, year, month).items():
+        value = part.value
+        meta = SYSTEM_ITEMS[key]
+        rows = repo.list_by_system_key(db, year, month, key)
+        # 2 request mở cùng 1 tháng mới đúng cùng lúc (vd 2 máy, hoặc bấm tab
+        # 2 lần) có thể cùng tạo mục -> trùng dòng, tổng tài sản bị cộng 2
+        # lần. Giữ dòng đầu, xóa mềm các dòng thừa.
+        for dup in rows[1:]:
+            repo.delete(db, dup)
+        existing = rows[0] if rows else None
         if existing is None:
             repo.create(db, {
                 "year": year, "month": month, "name": meta["name"],
@@ -126,6 +111,48 @@ def _ensure_system_items(db: Session, year: int, month: int) -> None:
             })
         else:
             repo.update(db, existing, {"name": meta["name"], "value": value})
+
+
+def _compute_parts(db: Session, year: int, month: int) -> dict[str, SystemItemBreakdown]:
+    """Thành phần công thức của 4 mục tự động cho (year, month). Tháng trước
+    phải đã được tính (_ensure_system_items lo việc đệ quy)."""
+    py, pm = _prev_month(year, month)
+    users = {u.name: u for u in user_repository.list_all(db)}
+    start, end = _month_bounds(year, month)
+    parts: dict[str, SystemItemBreakdown] = {}
+    for key, meta in SYSTEM_ITEMS.items():
+        user = users.get(meta["user_name"])
+        p = SystemItemBreakdown(system_key=key, name=meta["name"], kind=meta["kind"])
+        if meta["kind"] == "account":
+            p.prev_closing = _closing_value(db, py, pm, key)
+            if user is not None:
+                s = report_service.period_summary(db, start=start, end=end, user_id=user.id)
+                p.income = s.total_income or 0.0
+                p.expense = s.total_expense or 0.0
+                p.transferred_out = s.transferred_out or 0.0
+                p.transferred_in = s.transferred_in or 0.0
+                p.interest = savings_service.interest_received_between(
+                    db, user_id=user.id, start=start, end=end
+                )
+            p.value = (p.prev_closing + p.income - p.expense - p.transferred_out
+                       + p.transferred_in + p.interest)
+        else:  # "stock"
+            if user is not None:
+                p.holdings_total = sum(
+                    float(h.value)
+                    for h in stock_service.list_holdings(db, user_id=user.id)
+                )
+            p.value = p.holdings_total
+        parts[key] = p
+    return parts
+
+
+def system_breakdown(db: Session, year: int, month: int) -> list[SystemItemBreakdown]:
+    """Số liệu thành phần của 4 mục tự động (sau khi đã tính lại tháng)."""
+    if (year, month) < _SYSTEM_START:
+        return []
+    _ensure_system_items(db, year, month)
+    return list(_compute_parts(db, year, month).values())
 
 
 # Display names of the 4 system rows - a PLAIN row with one of these exact
