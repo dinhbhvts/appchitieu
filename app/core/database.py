@@ -7,7 +7,7 @@ Business logic never creates its own connection; it always receives a Session.
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import get_settings
@@ -39,6 +39,29 @@ pool_kwargs = (
     else {"pool_pre_ping": True, "pool_recycle": 300}
 )
 engine = create_engine(settings.database_url, connect_args=connect_args, **pool_kwargs)
+
+
+def pin_search_path(target_engine) -> None:
+    """PostgreSQL: luôn làm việc trong schema `public`, bất kể search_path
+    mặc định của máy chủ.
+
+    Sự cố 8/11/2026: Neon (sau khi lên PostgreSQL 18 / bật Neon Auth) trả về
+    search_path RỖNG cho tài khoản neondb_owner -> câu lệnh không ghi rõ
+    schema không thấy bảng nào, app tưởng DB trống và sập lúc khởi động
+    ("no schema has been selected to create in"), dù dữ liệu vẫn nguyên
+    trong public. Đặt SET LOCAL ở ĐẦU MỖI transaction (không dùng SET cho
+    cả phiên) vì cổng pooler của Neon (PgBouncer, transaction mode) có thể
+    đưa mỗi transaction sang 1 kết nối máy chủ khác. Không áp dụng SQLite.
+    """
+    if target_engine.dialect.name != "postgresql":
+        return
+
+    @event.listens_for(target_engine, "begin")
+    def _set_search_path(conn):  # noqa: ANN001
+        conn.exec_driver_sql("SET LOCAL search_path TO public")
+
+
+pin_search_path(engine)
 
 # A factory that hands out new Session objects. A Session is one "unit of work":
 # you open it, run queries/inserts inside it, then commit or roll back.

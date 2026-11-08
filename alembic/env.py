@@ -11,7 +11,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
-from app.core.database import Base
+from app.core.database import Base, pin_search_path
 
 # Import models so their tables are registered on Base.metadata.
 from app import models  # noqa: F401
@@ -19,7 +19,8 @@ from app import models  # noqa: F401
 config = context.config
 
 # Inject the real database URL from our application settings.
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# "%" phải nhân đôi vì configparser coi "%" là cú pháp nội suy.
+config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -48,6 +49,8 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    # Luôn chạy trong schema public (xem app.core.database.pin_search_path).
+    pin_search_path(connectable)
     with connectable.connect() as connection:
         context.configure(
             connection=connection, target_metadata=target_metadata
